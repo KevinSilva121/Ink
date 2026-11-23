@@ -1,0 +1,663 @@
+:root {
+  --bg: #111214;
+  --panel: #1b1d21;
+  --line: #2c2f35;
+  --text: #ecebe8;
+  --muted: #a3a29e;
+  --accent: #e0b36a;
+  --accent-ink: #1a1408;
+  --focus: #f2cf8f;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 6px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.top h1 {
+  font-size: 1.15rem;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.tag {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 560px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+.step {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.layers {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.layers:empty {
+  display: none;
+}
+
+.chip {
+  position: relative;
+}
+
+.chip-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  min-width: 64px;
+  border-radius: 10px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip-main[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
+.chip-main canvas {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+}
+
+.chip-main .pending {
+  color: var(--accent);
+}
+
+.chip-del {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-main:focus-visible,
+.chip-del:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.editing {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-weight: 600;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.btn:focus-visible,
+.link:focus-visible,
+input:focus-visible + *,
+input[type='range']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.note {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.note:empty {
+  display: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.status {
+  margin: 14px 0 10px;
+  min-height: 1.45em;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.stage-wrap {
+  position: relative;
+}
+
+/* As duas camadas têm o mesmo tamanho intrínseco, então ocupam a mesma célula
+   do grid com o mesmo tamanho na tela. A altura é limitada para sobrar espaço
+   de rolagem no celular. */
+.stage-box {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+.stage-box canvas {
+  grid-area: 1 / 1;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 72vh;
+}
+
+#stage {
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#overlay {
+  pointer-events: none;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding: 16px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  margin-top: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+@media (max-width: 560px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+}
+
+.slider label {
+  font-size: 0.9rem;
+}
+
+.slider output {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--accent);
+  min-height: 28px;
+}
+
+.segmented {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.segmented legend {
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.segmented label,
+.toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.segmented input,
+.toggles input {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+}
+
+.actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions .btn {
+  flex: 1 1 140px;
+}
+
+/* Voltar / Avançar: fica grudado no topo ao rolar, para estar sempre à mão. */
+.history-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.history-bar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.history-bar .btn {
+  flex: 1 1 0;
+  gap: 6px;
+}
+
+.save-state {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: right;
+  min-height: 1em;
+}
+
+.top-btn {
+  margin-left: auto;
+  min-height: 40px;
+}
+
+/* ---------- Meus projetos ---------- */
+.proj-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.proj {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.proj img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+}
+
+.proj-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.proj-info input {
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  width: 100%;
+}
+
+.proj-info input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.proj-info .note {
+  margin: 0;
+}
+
+.proj-acts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proj-acts .btn {
+  flex: 1 1 110px;
+  min-height: 40px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- Extrair de uma foto ---------- */
+.extractor {
+  width: 100%;
+  max-width: 980px;
+  max-height: 100dvh;
+  margin: 0 auto;
+  padding: 12px 16px 20px;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.extractor::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+@media (max-width: 560px) {
+  .extractor {
+    height: 100dvh;
+    max-width: 100%;
+  }
+}
+
+.x-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.x-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.x-close {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.x-close:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.x-box {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+.x-box canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 62vh;
+  touch-action: none;
+}
+
+#xPhoto {
+  cursor: crosshair;
+}
+
+.x-cut {
+  margin: 0 0 10px;
+}
+
+/* ---------- Gerar decalque ---------- */
+.d-step {
+  margin: 18px 0 4px;
+  font-size: 1rem;
+}
+
+/* A foto da medida rola a página quando o dedo não está numa marca (ver decal.ts). */
+.x-box #dPhoto {
+  cursor: grab;
+  touch-action: pan-y pinch-zoom;
+  max-height: 42vh;
+}
+
+.d-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.d-stepper .btn {
+  min-width: 48px;
+  padding: 0;
+  font-size: 1.4rem;
+}
+
+.d-unit {
+  color: var(--muted);
+}
+
+#dPreview {
+  max-height: none;
+  max-width: 100%;
+}
+
+.d-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.d-field label {
+  font-size: 0.9rem;
+}
+
+.d-field input {
+  width: 120px;
+  text-align: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05rem;
+}
+
+.d-field input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.d-warn {
+  color: #f2a65a;
+}
+
+.d-actions {
+  margin-top: 10px;
+}
+
+/* O desenho extraído fica sobre papel branco, como o arquivo que vai ser salvo. */
+.x-paper {
+  background: #fff;
+  padding: 8px;
+}
+
+.x-paper canvas {
+  max-height: 52vh;
+}
+
+.x-paper.erasing canvas {
+  cursor: cell;
+}
+
+footer {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 16px 28px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+[hidden] {
+  display: none !important;
+}

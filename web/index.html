@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#111214" />
+    <link rel="icon" href="data:," />
+    <title>Provador de tatuagem</title>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Provador de tatuagem</h1>
+      <span class="tag">teste</span>
+      <button type="button" class="btn ghost top-btn" id="projectsBtn">Meus projetos</button>
+    </header>
+
+    <main>
+      <section class="steps">
+        <div class="step">
+          <div class="step-head"><span class="num">1</span>Foto do corpo</div>
+          <label class="btn" for="photoInput">Escolher foto</label>
+          <input id="photoInput" type="file" accept="image/*" class="sr-only" />
+          <p class="note">Pele à mostra, boa luz, a parte do corpo inteira no quadro.</p>
+        </div>
+        <div class="step">
+          <div class="step-head"><span class="num">2</span>Tatuagens</div>
+          <div class="btn-row">
+            <label class="btn" for="designInput">Adicionar tatuagem</label>
+            <label class="btn ghost" for="extractInput">Extrair de uma foto</label>
+          </div>
+          <input id="designInput" type="file" accept="image/*" multiple class="sr-only" />
+          <input id="extractInput" type="file" accept="image/*" class="sr-only" />
+          <p class="note">
+            Pode escolher várias de uma vez (fechamento). Só tem a foto de uma tatuagem na pele de alguém? Use
+            "Extrair de uma foto". Ou teste com:
+            <button type="button" class="link" data-example="exemplos/mandala.svg">traço</button> ·
+            <button type="button" class="link" data-example="exemplos/flor.svg">colorida</button>
+          </p>
+          <ul id="layers" class="layers" aria-label="Tatuagens adicionadas"></ul>
+          <p id="designNote" class="note"></p>
+        </div>
+      </section>
+
+      <p id="status" class="status" role="status">Preparando a detecção do corpo…</p>
+
+      <section class="stage-wrap">
+        <div class="history-bar" id="historyBar" hidden>
+          <button type="button" class="btn ghost" id="undo" disabled aria-keyshortcuts="Control+Z">
+            <span aria-hidden="true">↶</span> Voltar
+          </button>
+          <button type="button" class="btn ghost" id="redo" disabled aria-keyshortcuts="Control+Y">
+            Avançar <span aria-hidden="true">↷</span>
+          </button>
+          <span class="save-state" id="saveState" role="status"></span>
+        </div>
+        <div class="stage-box" id="stageBox" hidden>
+          <canvas id="stage"></canvas>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="empty" id="empty">Escolha uma foto do corpo para começar.</div>
+      </section>
+
+      <section class="controls" id="controls" hidden>
+        <p class="editing" id="editing"></p>
+        <div class="slider">
+          <label for="size">Tamanho</label><output id="sizeOut"></output>
+          <input id="size" type="range" min="0" max="1000" value="500" />
+        </div>
+        <div class="slider">
+          <label for="rot">Rotação</label><output id="rotOut"></output>
+          <input id="rot" type="range" min="-180" max="180" value="0" />
+        </div>
+        <div class="slider">
+          <label for="curv">Curvatura</label><output id="curvOut"></output>
+          <input id="curv" type="range" min="0" max="160" value="100" />
+        </div>
+        <div class="slider">
+          <label for="cov">Cobertura da tinta</label><output id="covOut"></output>
+          <input id="cov" type="range" min="0" max="60" value="15" />
+        </div>
+
+        <fieldset class="segmented">
+          <legend>Aspecto</legend>
+          <label><input type="radio" name="look" value="cicatrizada" checked />Cicatrizada</label>
+          <label><input type="radio" name="look" value="recente" />Recém-feita</label>
+        </fieldset>
+
+        <div class="toggles">
+          <label><input type="checkbox" id="clip" checked />Recortar na pele</label>
+          <label><input type="checkbox" id="flip" />Espelhar desenho</label>
+          <label><input type="checkbox" id="debug" />Mostrar detecção</label>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" id="compare">Segure para ver sem</button>
+          <button type="button" class="btn ghost" id="sides" aria-pressed="false">Ajustar lados</button>
+          <button type="button" class="btn ghost" id="adjust" aria-pressed="false">Ajustar contorno</button>
+          <button type="button" class="btn ghost" id="erase" aria-pressed="false">Borracha</button>
+          <button type="button" class="btn ghost" id="refit">Reajustar ao corpo</button>
+          <button type="button" class="btn ghost" id="decalBtn">Gerar decalque</button>
+          <button type="button" class="btn" id="save">Salvar imagem</button>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="extractor" class="extractor" aria-labelledby="xTitle">
+      <div class="x-head">
+        <h2 id="xTitle">Extrair tatuagem de uma foto</h2>
+        <button type="button" class="x-close" id="xClose" aria-label="Fechar">×</button>
+      </div>
+      <p id="xStatus" class="status" role="status"></p>
+
+      <div id="xPick">
+        <fieldset class="segmented x-cut">
+          <legend>Recorte</legend>
+          <label><input type="radio" name="xCut" value="ima" checked />Ímã (gruda na borda)</label>
+          <label><input type="radio" name="xCut" value="livre" />Livre</label>
+        </fieldset>
+        <div class="x-box"><canvas id="xPhoto"></canvas></div>
+      </div>
+
+      <div id="xResult" hidden>
+        <div class="x-box x-paper"><canvas id="xOut"></canvas></div>
+        <div class="controls">
+          <fieldset class="segmented">
+            <legend>Tipo de tatuagem</legend>
+            <label><input type="radio" name="xMode" value="cor" checked />Colorida</label>
+            <label><input type="radio" name="xMode" value="pb" />Preto e cinza</label>
+            <label><input type="radio" name="xMode" value="traco" />Só traço</label>
+          </fieldset>
+          <div class="slider">
+            <label for="xClean">Limpeza da pele</label><output id="xCleanOut"></output>
+            <input id="xClean" type="range" min="0" max="40" value="12" />
+          </div>
+          <div class="slider">
+            <label for="xGain">Intensidade da tinta</label><output id="xGainOut"></output>
+            <input id="xGain" type="range" min="50" max="250" value="100" />
+          </div>
+          <div class="slider">
+            <label for="xSharp">Nitidez</label><output id="xSharpOut"></output>
+            <input id="xSharp" type="range" min="0" max="200" value="60" />
+          </div>
+          <div class="slider">
+            <label for="xUnwrap">Desentortar (curva do corpo)</label><output id="xUnwrapOut"></output>
+            <input id="xUnwrap" type="range" min="0" max="150" value="100" />
+          </div>
+          <div class="toggles">
+            <label><input type="checkbox" id="xTrim" checked />Remover rebarbas (sobras do recorte)</label>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn ghost" id="xErase" aria-pressed="false">Borracha</button>
+            <button type="button" class="btn ghost" id="xUndo" hidden>Desfazer</button>
+            <button type="button" class="btn ghost" id="xRotate">Girar 90°</button>
+            <button type="button" class="btn ghost" id="xAgain">Marcar de novo</button>
+            <button type="button" class="btn ghost" id="xSave">Salvar PNG</button>
+            <button type="button" class="btn" id="xUse">Usar esta tatuagem</button>
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        A arte é de quem a criou. Use para provar no seu corpo e como referência; para tatuar, fale com o tatuador
+        original ou peça uma versão sua.
+      </p>
+    </dialog>
+
+    <dialog id="projects" class="extractor" aria-labelledby="pTitle">
+      <div class="x-head">
+        <h2 id="pTitle">Meus projetos</h2>
+        <button type="button" class="x-close" id="pClose" aria-label="Fechar">×</button>
+      </div>
+      <p class="note">
+        Cada projeto (foto, tatuagens e todos os ajustes) é salvo sozinho a cada edição, neste aparelho e neste
+        navegador. Para guardar de vez ou passar para outro aparelho, use "Baixar arquivo" e depois "Abrir arquivo de
+        projeto".
+      </p>
+      <div class="btn-row">
+        <button type="button" class="btn" id="pNew">Novo projeto</button>
+        <label class="btn ghost" for="pImport">Abrir arquivo de projeto</label>
+        <input type="file" id="pImport" accept=".json,application/json" class="sr-only" />
+      </div>
+      <p class="status" id="pStatus" role="status"></p>
+      <ul class="proj-list" id="pList"></ul>
+    </dialog>
+
+    <dialog id="decal" class="extractor" aria-labelledby="dTitle">
+      <div class="x-head">
+        <h2 id="dTitle">Gerar decalque</h2>
+        <button type="button" class="x-close" id="dClose" aria-label="Fechar">×</button>
+      </div>
+      <p class="note">
+        O decalque sai do desenho com os seus ajustes (tamanho, giro, lados, espelhar), já "desenrolado": ao colar, é a
+        pele que faz a curva. A borracha não entra (ela só escondia o que estava na frente da pele na foto).
+      </p>
+
+      <h3 class="d-step">1. Medida real</h3>
+      <p class="note" id="dHelp"></p>
+      <div class="x-box"><canvas id="dPhoto"></canvas></div>
+      <div class="d-field">
+        <label for="dCm">Distância entre A e B no seu corpo, com a fita seguindo a pele (cm)</label>
+        <div class="d-stepper">
+          <button type="button" class="btn ghost" id="dMinus" aria-label="Diminuir meio centímetro">−</button>
+          <input
+            id="dCm"
+            type="text"
+            inputmode="decimal"
+            enterkeyhint="done"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="ex.: 14,5"
+          />
+          <button type="button" class="btn ghost" id="dPlus" aria-label="Aumentar meio centímetro">+</button>
+          <span class="d-unit">cm</span>
+        </div>
+      </div>
+      <p class="note d-warn" id="dWarn"></p>
+
+      <h3 class="d-step">2. Papel</h3>
+      <fieldset class="segmented">
+        <legend class="sr-only">Tipo de papel</legend>
+        <label><input type="radio" name="dPaper" value="stencil" checked />Stencil do tatuador</label>
+        <label><input type="radio" name="dPaper" value="temporaria" />Tatuagem temporária</label>
+        <label><input type="radio" name="dPaper" value="comum" />Papel comum (conferir)</label>
+      </fieldset>
+      <p class="note" id="dPaperNote"></p>
+      <div class="toggles">
+        <label><input type="checkbox" id="dMirror" />A foto do corpo foi tirada no espelho (aparece invertida)</label>
+      </div>
+
+      <h3 class="d-step">3. Decalque</h3>
+      <p class="status" id="dSize"></p>
+      <div class="x-box x-paper"><canvas id="dPreview"></canvas></div>
+      <div class="actions d-actions">
+        <button type="button" class="btn" id="dPdf" disabled>Baixar PDF (tamanho real)</button>
+      </div>
+      <p class="status" id="dStatus" role="status"></p>
+      <p class="note">
+        Tatuagem que dá mais da metade da volta no braço ou na perna, ou que passa por dobras (cotovelo, joelho,
+        tornozelo), não assenta perfeita com um decalque plano: cole do centro para as bordas ou divida em partes.
+      </p>
+    </dialog>
+
+    <footer>As fotos são processadas no seu aparelho e não são enviadas para nenhum servidor.</footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

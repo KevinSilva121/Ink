@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# gerados por scripts/setup.mjs
+public/mediapipe/
+public/models/
