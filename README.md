@@ -1,5 +1,7 @@
 # Provador de tatuagem
 
+**Abrir o app:** https://kevinsilva121.github.io/Ink/ (funciona no computador e no celular)
+
 Protótipo web para ver como uma tatuagem fica no **seu** corpo antes de fazer: você escolhe uma foto do corpo e o desenho (do Pinterest, do tatuador ou extraído de outra foto), e o app ajusta a tatuagem à curva do braço, perna ou tronco, com luz e textura da pele. Tudo roda no aparelho: as fotos não são enviadas para nenhum servidor.
 
 ## O que já faz
@@ -27,6 +29,10 @@ Abre em `http://localhost:5173` (e no celular, pelo endereço de rede que o Vite
 Na primeira vez, `npm run dev` baixa os modelos de detecção do corpo do MediaPipe (segmentação de pele e pontos do corpo, ~50 MB) para `web/public/models` e copia o WebAssembly para `web/public/mediapipe`. Essas pastas não vão para o repositório.
 
 Para gerar a versão de produção: `npm run build` (sai em `web/dist`).
+
+## Publicação
+
+Cada `git push` na `main` publica o app no GitHub Pages sozinho (`.github/workflows/pages.yml`): o GitHub instala, baixa os modelos, monta com o endereço `/Ink/` e publica. O andamento aparece na aba **Actions** do repositório; leva uns 2 minutos.
 
 ## Como funciona (resumo)
 
