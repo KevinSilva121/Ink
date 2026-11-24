@@ -1,5 +1,5 @@
 {
-  "name": "ink-provador",
+  "name": "provink",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,12 +9,22 @@
     "dev": "vite --host",
     "prebuild": "node scripts/setup.mjs",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "app:sync": "npm run build && cap sync",
+    "app:android": "npm run app:sync && cap open android",
+    "app:ios": "npm run app:sync && cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/ios": "8.6.2",
+    "@capacitor/share": "8.0.3",
     "@mediapipe/tasks-vision": "1.2.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.2",
     "typescript": "7.0.2",
     "vite": "8.3.8"
   }

@@ -1,7 +1,7 @@
 // Prepara os arquivos estáticos do MediaPipe: copia o WASM do node_modules
 // e baixa os modelos uma única vez para public/models (ficam servidos pelo
 // próprio app, sem depender do servidor do Google em tempo de uso).
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,8 +10,11 @@ const pub = join(root, 'public');
 
 const wasmSrc = join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
 const wasmDst = join(pub, 'mediapipe', 'wasm');
+// Só a versão "clássica" (a que o FilesetResolver usa por padrão). A versão em módulo ES6
+// (vision_wasm_module_internal, ~14 MB) não é usada e só aumentaria o site e o app.
+rmSync(wasmDst, { recursive: true, force: true });
 mkdirSync(wasmDst, { recursive: true });
-cpSync(wasmSrc, wasmDst, { recursive: true });
+cpSync(wasmSrc, wasmDst, { recursive: true, filter: (src) => !src.includes('_module_internal') });
 
 const models = {
   'selfie_multiclass_256x256.tflite':

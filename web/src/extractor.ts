@@ -20,6 +20,7 @@ import {
 } from './extract';
 import { MagnetLasso, edgeCost } from './magnet';
 import { clamp, loadToCanvas, smoothstep } from './util';
+import { saveFile } from './platform';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -933,12 +934,10 @@ $('xUse').addEventListener('click', () => {
 
 $('xSave').addEventListener('click', () => {
   if (!S?.work) return;
-  const blob = exportBlob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'tatuagem-extraida.png';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  void saveFile(exportBlob(), 'provink-tatuagem-extraida.png', 'Tatuagem extraída').catch((err) => {
+    console.error(err);
+    setStatus('Não consegui salvar a imagem.');
+  });
 });
 
 function close() {

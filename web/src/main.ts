@@ -18,7 +18,19 @@ import { imageToLocal, localToImage, outline, render, type Placement } from './r
 import { openExtractor } from './extractor';
 import { openDecal } from './decal';
 import { clamp, loadToCanvas, smoothstep } from './util';
-import { askPersistence, deleteProject, getBlob, getProject, listProjects, newId, putBlob, putProject } from './store';
+import {
+  askPersistence,
+  deleteProject,
+  getBlob,
+  getProject,
+  jsonReplacer,
+  jsonReviver,
+  listProjects,
+  newId,
+  putBlob,
+  putProject,
+} from './store';
+import { blobToDataUrl, isNative, onBackButton, saveFile } from './platform';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -681,26 +693,7 @@ async function openProject(id: string) {
 }
 
 // ----- Arquivo do projeto (para guardar de vez ou passar para outro aparelho) -----
-const blobToDataUrl = (b: Blob) =>
-  new Promise<string>((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result as string);
-    r.onerror = () => rej(r.error);
-    r.readAsDataURL(b);
-  });
-
-/** JSON não tem Float32Array nem Infinity: vira um objeto marcado, e volta na leitura. */
-const jsonReplacer = (_k: string, v: unknown) =>
-  v instanceof Float32Array
-    ? { $f32: Array.from(v, (x) => Math.round(x * 1000) / 1000) }
-    : typeof v === 'number' && !Number.isFinite(v)
-      ? { $num: String(v) }
-      : v;
-const jsonReviver = (_k: string, v: unknown) => {
-  if (v && typeof v === 'object' && '$f32' in v) return Float32Array.from((v as { $f32: number[] }).$f32);
-  if (v && typeof v === 'object' && '$num' in v) return Number((v as { $num: string }).$num);
-  return v;
-};
+const safeFileName = (s: string) => s.replace(/[\\/:*?"<>|]/g, '-').trim() || 'provink';
 
 async function exportProject(id: string) {
   if (project?.id === id) await saveNow();
@@ -713,11 +706,7 @@ async function exportProject(id: string) {
   }
   const file = { format: 'provador-tatuagem', version: 1, name: rec.name, created: rec.created, updated: rec.updated, state: rec.state, blobs };
   const blob = new Blob([JSON.stringify(file, jsonReplacer)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${rec.name.replace(/[\\/:*?"<>|]/g, '-')}.tatuagem.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  await saveFile(blob, `${safeFileName(rec.name)}.provink.json`, `Projeto: ${rec.name}`);
 }
 
 async function importProject(file: Blob): Promise<string> {
@@ -800,7 +789,7 @@ async function renderProjects() {
             setStatus('Não consegui abrir esse projeto.');
           });
         }),
-        mk('Baixar arquivo', 'btn ghost', () => void exportProject(p.id)),
+        mk(isNative ? 'Salvar arquivo' : 'Baixar arquivo', 'btn ghost', () => void exportProject(p.id)),
         mk('Excluir', 'btn ghost', async () => {
           if (!confirm(`Excluir "${p.name}"? Isso não tem volta.`)) return;
           await deleteProject(p.id);
@@ -835,12 +824,35 @@ $<HTMLInputElement>('pImport').addEventListener('change', async (e) => {
     projStatus.textContent = 'Esse arquivo não é um projeto do provador (ou está corrompido).';
   }
 });
-// Ao sair ou trocar de aba, grava o que estiver pendente.
+// Ao sair ou trocar de aba (no app: ir para o fundo), grava o que estiver pendente.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'hidden' || !saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = 0;
   void saveNow();
+});
+
+// No app, "baixar" vira "salvar" (abre o menu de compartilhar do celular).
+if (isNative) {
+  $('pNote').textContent =
+    'Cada projeto (foto, tatuagens e todos os ajustes) é salvo sozinho a cada edição, dentro do app. Para guardar uma cópia ou passar para outro aparelho, use "Salvar arquivo" e depois "Abrir arquivo de projeto".';
+  $('dPdf').textContent = 'Salvar PDF (tamanho real)';
+}
+
+// Botão "voltar" do Android: fecha a tela aberta ou o modo de edição, nessa ordem.
+onBackButton(() => {
+  const open = document.querySelector<HTMLDialogElement>('dialog[open]');
+  if (open) {
+    open.close();
+    return true;
+  }
+  if (adjustMode || eraseMode || sideMode) {
+    setAdjustMode(false);
+    setEraseMode(false);
+    setSideMode(false);
+    return true;
+  }
+  return false;
 });
 
 undoBtn.addEventListener('click', undo);
@@ -1437,19 +1449,15 @@ $('refit').addEventListener('click', () => {
   commit();
 });
 
-$('save').addEventListener('click', () => {
-  stage.toBlob(
-    (blob) => {
-      if (!blob) return;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'tatuagem-teste.jpg';
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    },
-    'image/jpeg',
-    0.92,
-  );
+$('save').addEventListener('click', async () => {
+  if (!photo) return;
+  try {
+    const name = project?.name ?? 'provink';
+    await saveFile(await canvasBlob(stage, 'image/jpeg', 0.92), `${safeFileName(name)}.jpg`, 'Foto com a tatuagem');
+  } catch (err) {
+    console.error(err);
+    setStatus('Não consegui salvar a imagem.');
+  }
 });
 
 $<HTMLInputElement>('photoInput').addEventListener('change', (e) => {

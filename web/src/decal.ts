@@ -12,6 +12,7 @@ import { profileAt, type Frame } from './geometry';
 import { imageToSkin, localToImage, type Placement } from './render';
 import type { Design, Tex } from './design';
 import { clamp, smoothstep } from './util';
+import { saveFile } from './platform';
 
 export interface DecalInput {
   /** Foto com as tatuagens, como está na tela. */
@@ -796,11 +797,7 @@ pdfBtn.addEventListener('click', async () => {
       pages.push({ jpg: jpegBytes(c), w: c.width, h: c.height });
     }
     const blob = buildPdf(pages, T.sheet);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `decalque-${fmt(G.heightCm).replace(',', '_')}cm.pdf`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    await saveFile(blob, `provink-decalque-${fmt(G.heightCm).replace(',', '_')}cm.pdf`, 'Decalque (PDF)');
     statusEl.textContent = `PDF pronto (${T.list.length === 1 ? '1 folha' : `${T.list.length} folhas`}). Imprima em tamanho real e confira a régua de 5 cm.`;
     if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { __decalPdf: blob });
   } catch (err) {
