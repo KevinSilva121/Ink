@@ -13,25 +13,41 @@
     <header class="top">
       <h1>Provink</h1>
       <span class="tag">beta</span>
-      <button type="button" class="btn ghost top-btn" id="projectsBtn">Meus projetos</button>
+      <div class="top-acts">
+        <button type="button" class="icon-btn ed-only" id="undo" disabled aria-label="Voltar (desfazer)" title="Voltar (desfazer)" aria-keyshortcuts="Control+Z">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>
+        </button>
+        <button type="button" class="icon-btn ed-only" id="redo" disabled aria-label="Avançar (refazer)" title="Avançar (refazer)" aria-keyshortcuts="Control+Y">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h3" /></svg>
+        </button>
+        <button type="button" class="btn ghost top-btn" id="projectsBtn" aria-label="Meus projetos" title="Meus projetos">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+          <span class="top-label">Projetos</span>
+        </button>
+        <button type="button" class="btn top-btn ed-only" id="save" title="Salvar a foto com a tatuagem">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></svg>
+          <span>Salvar</span>
+        </button>
+      </div>
     </header>
 
     <main>
-      <section class="steps">
+      <input id="photoInput" type="file" accept="image/*" class="sr-only" />
+      <input id="designInput" type="file" accept="image/*" multiple class="sr-only" />
+      <input id="extractInput" type="file" accept="image/*" class="sr-only" />
+
+      <section class="steps" id="steps">
         <div class="step">
           <div class="step-head"><span class="num">1</span>Foto do corpo</div>
           <label class="btn" for="photoInput">Escolher foto</label>
-          <input id="photoInput" type="file" accept="image/*" class="sr-only" />
           <p class="note">Pele à mostra, boa luz, a parte do corpo inteira no quadro.</p>
         </div>
-        <div class="step">
+        <div class="step" id="layersHome">
           <div class="step-head"><span class="num">2</span>Tatuagens</div>
           <div class="btn-row">
             <label class="btn" for="designInput">Adicionar tatuagem</label>
             <label class="btn ghost" for="extractInput">Extrair de uma foto</label>
           </div>
-          <input id="designInput" type="file" accept="image/*" multiple class="sr-only" />
-          <input id="extractInput" type="file" accept="image/*" class="sr-only" />
           <p class="note">
             Pode escolher várias de uma vez (fechamento). Só tem a foto de uma tatuagem na pele de alguém? Use
             "Extrair de uma foto". Ou teste com:
@@ -39,69 +55,162 @@
             <button type="button" class="link" data-example="exemplos/flor.svg">colorida</button>
           </p>
           <ul id="layers" class="layers" aria-label="Tatuagens adicionadas"></ul>
-          <p id="designNote" class="note"></p>
         </div>
       </section>
 
       <p id="status" class="status" role="status">Preparando a detecção do corpo…</p>
 
       <section class="stage-wrap">
-        <div class="history-bar" id="historyBar" hidden>
-          <button type="button" class="btn ghost" id="undo" disabled aria-keyshortcuts="Control+Z">
-            <span aria-hidden="true">↶</span> Voltar
-          </button>
-          <button type="button" class="btn ghost" id="redo" disabled aria-keyshortcuts="Control+Y">
-            Avançar <span aria-hidden="true">↷</span>
+        <div class="stage-box" id="stageBox" hidden>
+          <div class="stage-view" id="stageView">
+            <canvas id="stage"></canvas>
+            <canvas id="overlay"></canvas>
+          </div>
+          <div class="fabs">
+            <button type="button" class="fab" id="lock" aria-pressed="false" aria-label="Travar a edição" title="Travar a edição">
+              <svg class="ic ic-open" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 7.6-1.8" /></svg>
+              <svg class="ic ic-closed" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+            </button>
+            <button type="button" class="fab" id="compare" aria-label="Segure para ver sem a tatuagem" title="Segure para ver sem a tatuagem">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>
+            </button>
+          </div>
+          <button type="button" class="fab fab-fit" id="fitView" hidden>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+            Ver a foto inteira
           </button>
           <span class="save-state" id="saveState" role="status"></span>
-        </div>
-        <div class="stage-box" id="stageBox" hidden>
-          <canvas id="stage"></canvas>
-          <canvas id="overlay"></canvas>
         </div>
         <div class="empty" id="empty">Escolha uma foto do corpo para começar.</div>
       </section>
 
-      <section class="controls" id="controls" hidden>
-        <p class="editing" id="editing"></p>
-        <div class="slider">
-          <label for="size">Tamanho</label><output id="sizeOut"></output>
-          <input id="size" type="range" min="0" max="1000" value="500" />
-        </div>
-        <div class="slider">
-          <label for="rot">Rotação</label><output id="rotOut"></output>
-          <input id="rot" type="range" min="-180" max="180" value="0" />
-        </div>
-        <div class="slider">
-          <label for="curv">Curvatura</label><output id="curvOut"></output>
-          <input id="curv" type="range" min="0" max="160" value="100" />
-        </div>
-        <div class="slider">
-          <label for="cov">Cobertura da tinta</label><output id="covOut"></output>
-          <input id="cov" type="range" min="0" max="60" value="15" />
-        </div>
-
-        <fieldset class="segmented">
-          <legend>Aspecto</legend>
-          <label><input type="radio" name="look" value="cicatrizada" checked />Cicatrizada</label>
-          <label><input type="radio" name="look" value="recente" />Recém-feita</label>
-        </fieldset>
-
-        <div class="toggles">
-          <label><input type="checkbox" id="clip" checked />Recortar na pele</label>
-          <label><input type="checkbox" id="flip" />Espelhar desenho</label>
-          <label><input type="checkbox" id="debug" />Mostrar detecção</label>
+      <section class="dock" id="dock" hidden>
+        <div class="layer-strip" id="layerStrip">
+          <div class="add-wrap">
+            <button type="button" class="btn add-btn" id="addBtn" aria-expanded="false" aria-controls="addMenu">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Tatuagem
+            </button>
+            <div class="add-menu" id="addMenu" hidden>
+              <label class="btn" for="designInput">Imagem do aparelho</label>
+              <label class="btn ghost" for="extractInput">Extrair de uma foto</label>
+              <p class="note">
+                Exemplos:
+                <button type="button" class="link" data-example="exemplos/mandala.svg">traço</button> ·
+                <button type="button" class="link" data-example="exemplos/flor.svg">colorida</button>
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div class="actions">
-          <button type="button" class="btn ghost" id="compare">Segure para ver sem</button>
-          <button type="button" class="btn ghost" id="sides" aria-pressed="false">Ajustar lados</button>
-          <button type="button" class="btn ghost" id="adjust" aria-pressed="false">Ajustar contorno</button>
-          <button type="button" class="btn ghost" id="erase" aria-pressed="false">Borracha</button>
-          <button type="button" class="btn ghost" id="refit">Reajustar ao corpo</button>
-          <button type="button" class="btn ghost" id="decalBtn">Gerar decalque</button>
-          <button type="button" class="btn" id="save">Salvar imagem</button>
+        <div class="tool-panel" id="toolPanel" hidden>
+          <div class="tp" data-panel="area" hidden>
+            <p class="tp-text area-legend">
+              <span class="sw sw-in" aria-hidden="true"></span>no corpo
+              <span class="sw sw-out" aria-hidden="true"></span>fora do corpo (ignorado)
+            </p>
+            <div class="slider slider-row">
+              <label for="areaSize">Pincel</label>
+              <input id="areaSize" type="range" min="8" max="60" value="24" />
+              <output id="areaSizeOut"></output>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn ghost" id="areaUndo">Desfazer</button>
+              <button type="button" class="btn area-go" id="areaGo">Encaixar</button>
+            </div>
+            <p class="area-links">
+              <button type="button" class="link" id="areaClear">Limpar tudo</button>
+              <button type="button" class="link" id="areaTap">Prefiro só tocar no lugar</button>
+            </p>
+          </div>
+          <div class="tp" data-panel="size" hidden>
+            <div class="slider">
+              <label for="size">Tamanho</label><output id="sizeOut"></output>
+              <input id="size" type="range" min="0" max="1000" value="500" />
+            </div>
+          </div>
+          <div class="tp" data-panel="rot" hidden>
+            <div class="slider">
+              <label for="rot">Rotação</label><output id="rotOut"></output>
+              <input id="rot" type="range" min="-180" max="180" value="0" />
+            </div>
+          </div>
+          <div class="tp" data-panel="ink" hidden>
+            <div class="slider">
+              <label for="cov">Cobertura da tinta</label><output id="covOut"></output>
+              <input id="cov" type="range" min="0" max="60" value="15" />
+            </div>
+            <fieldset class="segmented">
+              <legend>Aspecto</legend>
+              <label><input type="radio" name="look" value="cicatrizada" checked />Cicatrizada</label>
+              <label><input type="radio" name="look" value="recente" />Recém-feita</label>
+            </fieldset>
+          </div>
+          <div class="tp tp-mode" data-panel="sides" hidden>
+            <p>Puxe uma bolinha: só aquele lado muda.</p>
+            <button type="button" class="btn" data-done>Pronto</button>
+          </div>
+          <div class="tp tp-mode" data-panel="adjust" hidden>
+            <p>Arraste as bolinhas até a borda real da pele.</p>
+            <button type="button" class="btn" data-done>Pronto</button>
+          </div>
+          <div class="tp tp-mode" data-panel="erase" hidden>
+            <p>Passe o dedo onde a tatuagem não deve aparecer.</p>
+            <button type="button" class="btn" data-done>Pronto</button>
+          </div>
+          <div class="tp" data-panel="more" hidden>
+            <div class="slider">
+              <label for="curv">Curvatura</label><output id="curvOut"></output>
+              <input id="curv" type="range" min="0" max="160" value="100" />
+            </div>
+            <div class="toggles">
+              <label><input type="checkbox" id="clip" checked />Recortar na pele</label>
+              <label><input type="checkbox" id="flip" />Espelhar desenho</label>
+              <label><input type="checkbox" id="debug" />Mostrar detecção</label>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn ghost" id="refit">Reajustar ao corpo</button>
+              <button type="button" class="btn ghost" id="decalBtn">Gerar decalque</button>
+              <label class="btn ghost" for="photoInput">Trocar foto</label>
+            </div>
+            <p id="designNote" class="note"></p>
+          </div>
         </div>
+
+        <nav class="toolbar" id="toolbar" aria-label="Ferramentas">
+          <button type="button" class="tool" data-tool="area" id="areaBtn" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5l5 5-8 8-5-5z" /><path d="M6.5 12.5C4 13 3.5 15 3.5 17s-1 3-1 3 3 .5 5-1.5c1.2-1.2 1.6-2.8 1.6-2.8" /></svg>
+            <span>Área</span>
+          </button>
+          <button type="button" class="tool" data-tool="size" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v6h6M20 10V4h-6M4 20l6-6M20 4l-6 6" /></svg>
+            <span>Tamanho</span>
+          </button>
+          <button type="button" class="tool" data-tool="rot" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v5h-5" /></svg>
+            <span>Girar</span>
+          </button>
+          <button type="button" class="tool" data-tool="ink" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z" /></svg>
+            <span>Tinta</span>
+          </button>
+          <button type="button" class="tool" data-tool="sides" id="sides" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="10" height="12" rx="1.5" /><path d="M13 12h8M18 9l3 3-3 3" /></svg>
+            <span>Lados</span>
+          </button>
+          <button type="button" class="tool" data-tool="adjust" id="adjust" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3c-1.2 6-1.2 12 0 18M16 3c1.2 6 1.2 12 0 18" /><circle cx="7.3" cy="12" r="2" /><circle cx="16.7" cy="12" r="2" /></svg>
+            <span>Contorno</span>
+          </button>
+          <button type="button" class="tool" data-tool="erase" id="erase" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 14 5l5 5-9.5 9.5H8.5z" /><path d="m9 10 5 5M13 19.5h7" /></svg>
+            <span>Borracha</span>
+          </button>
+          <button type="button" class="tool" data-tool="more" aria-pressed="false">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></svg>
+            <span>Mais</span>
+          </button>
+        </nav>
       </section>
     </main>
 
@@ -118,7 +227,14 @@
           <label><input type="radio" name="xCut" value="ima" checked />Ímã (gruda na borda)</label>
           <label><input type="radio" name="xCut" value="livre" />Livre</label>
         </fieldset>
-        <div class="x-box"><canvas id="xPhoto"></canvas></div>
+        <div class="x-box x-draw">
+          <canvas id="xPhoto"></canvas>
+          <canvas id="xLoupe" class="x-loupe" aria-hidden="true" hidden></canvas>
+        </div>
+        <div class="actions x-confirm" id="xConfirm" hidden>
+          <button type="button" class="btn ghost" id="xRedo">Refazer contorno</button>
+          <button type="button" class="btn" id="xGo">Separar a tatuagem</button>
+        </div>
       </div>
 
       <div id="xResult" hidden>
@@ -153,7 +269,7 @@
             <button type="button" class="btn ghost" id="xErase" aria-pressed="false">Borracha</button>
             <button type="button" class="btn ghost" id="xUndo" hidden>Desfazer</button>
             <button type="button" class="btn ghost" id="xRotate">Girar 90°</button>
-            <button type="button" class="btn ghost" id="xAgain">Marcar de novo</button>
+            <button type="button" class="btn ghost" id="xAgain">Refazer contorno</button>
             <button type="button" class="btn ghost" id="xSave">Salvar PNG</button>
             <button type="button" class="btn" id="xUse">Usar esta tatuagem</button>
           </div>

@@ -57,6 +57,8 @@ export interface Frame {
   part: string;
   method: string;
   profile: Profile | null;
+  /** Pontos da pose nas pontas do trecho medido (ex.: cotovelo e punho), quando veio da pose. */
+  seg?: [number, number] | null;
 }
 
 const LIMBS: { a: number; b: number; label: string; ja: string; jb: string }[] = [
@@ -205,7 +207,8 @@ function insidePolygon(px: number, py: number, pts: Landmark[]): boolean {
   return inside;
 }
 
-interface PoseSegment {
+/** Trecho do corpo entre duas articulações (ou entre as pontas de uma área pintada). */
+export interface PoseSegment {
   ax: number;
   ay: number;
   bx: number;
@@ -214,6 +217,9 @@ interface PoseSegment {
   /** Nome das articulações nas pontas a e b. */
   ja: string;
   jb: string;
+  /** Pontos da pose nas pontas a e b. */
+  ia?: number;
+  ib?: number;
 }
 
 /**
@@ -234,7 +240,7 @@ function poseCandidates(pose: Landmark[], px: number, py: number, maxDist: numbe
     // Segmento da mão é curto e pouco confiável (e com braços cruzados fica embaixo do outro antebraço).
     const dist = s.label === 'mão' ? d.dist * 1.6 : d.dist;
     limbs.push({
-      seg: { ax: a.x, ay: a.y, bx: b.x, by: b.y, label: s.label, ja: s.ja, jb: s.jb },
+      seg: { ax: a.x, ay: a.y, bx: b.x, by: b.y, label: s.label, ja: s.ja, jb: s.jb, ia: s.a, ib: s.b },
       d: dist,
       len: Math.hypot(b.x - a.x, b.y - a.y),
     });
@@ -301,6 +307,8 @@ function buildFrame(
   cs: NonNullable<ReturnType<typeof crossSection>>,
   seg: PoseSegment | null,
   method: string,
+  /** O eixo passa no meio do membro (linha da pose): ver estimateProfile. */
+  symmetric = false,
 ): Frame {
   const vx = -uy;
   const vy = ux;
@@ -318,6 +326,7 @@ function buildFrame(
     part: seg?.label ?? '',
     method,
     profile: null,
+    seg: seg?.ia != null && seg.ib != null ? [seg.ia, seg.ib] : null,
   };
   // Trecho do eixo entre as articulações (ex.: cotovelo e punho), se a pose achou.
   let range: JointRange | null = null;
@@ -326,7 +335,7 @@ function buildFrame(
     const tb = (seg.bx - frame.cx) * ux + (seg.by - frame.cy) * uy;
     range = ta <= tb ? { lo: ta, hi: tb, joints: [seg.ja, seg.jb] } : { lo: tb, hi: ta, joints: [seg.jb, seg.ja] };
   }
-  frame.profile = estimateProfile(mask, w, h, frame, range);
+  frame.profile = estimateProfile(mask, w, h, frame, range, symmetric);
   if (frame.profile) {
     frame.R = Math.max(1, profileAt(frame, 0)[1]);
     frame.width = 2 * frame.R;
@@ -334,8 +343,33 @@ function buildFrame(
   return frame;
 }
 
+/**
+ * Mede o membro num eixo já escolhido (ex.: do ombro ao punho, num fechamento de braço com o
+ * braço esticado). `seg` diz onde o membro termina; o raio e o centro vêm da pele.
+ */
+export function frameOnAxis(
+  mask: Float32Array,
+  w: number,
+  h: number,
+  px: number,
+  py: number,
+  dx: number,
+  dy: number,
+  seg: PoseSegment | null,
+  method: string,
+  /** O ponto está na linha da pose (meio do membro): um lado bem maior que o outro = vazou para o tronco. */
+  symmetric = false,
+): Frame | null {
+  const [ux, uy] = orientUp(dx, dy);
+  const minD = Math.min(w, h);
+  let cs = crossSection(mask, w, h, px, py, ux, uy, 0.1 * minD, symmetric);
+  if (!cs) return null;
+  cs = crossSection(mask, w, h, px, py, ux, uy, clamp(cs.width * 0.9, 0.04 * minD, 0.5 * Math.max(w, h)), symmetric) ?? cs;
+  return buildFrame(mask, w, h, px, py, ux, uy, cs, seg, method, symmetric);
+}
+
 /** O ponto tocado está dentro da parte do corpo modelada? */
-function containsPoint(f: Frame, px: number, py: number): boolean {
+export function containsPoint(f: Frame, px: number, py: number): boolean {
   const t = (px - f.cx) * f.ux + (py - f.cy) * f.uy;
   const s = (px - f.cx) * f.vx + (py - f.cy) * f.vy;
   const [o, r] = profileAt(f, t);
@@ -387,7 +421,7 @@ export function estimateFrame(
       const segCs = sym ?? crossSection(mask, w, h, px, py, sux, suy, span);
       if (!segCs) continue;
       const f = sym
-        ? buildFrame(mask, w, h, lx, ly, sux, suy, sym, seg, 'pose + contorno da pele')
+        ? buildFrame(mask, w, h, lx, ly, sux, suy, sym, seg, 'pose + contorno da pele', true)
         : buildFrame(mask, w, h, px, py, sux, suy, segCs, seg, 'pose + contorno da pele');
       if (containsPoint(f, px, py)) return f;
     }
@@ -420,6 +454,12 @@ export function estimateProfile(
   h: number,
   f: Frame,
   range: JointRange | null,
+  /**
+   * O eixo é a linha da pose, no meio do membro. Um lado medindo bem mais que o outro é pele
+   * encostada (braço colado no tronco): esse lado vira o espelho do outro. Sem isso, com o braço
+   * encostado o membro inteiro, o raio saía do tamanho do tronco.
+   */
+  symmetric = false,
 ): Profile | null {
   if (!f.ok) return null;
   const minD = Math.min(w, h);
@@ -455,6 +495,10 @@ export function estimateProfile(
       const b = march(mask, w, h, px, py, -f.vx, -f.vy, gapTol, maxD);
       if (!a.border) A[i] = a.d;
       if (!b.border) B[i] = -b.d;
+      if (symmetric && !a.border && !b.border) {
+        if (a.d > 1.8 * b.d) A[i] = b.d;
+        else if (b.d > 1.8 * a.d) B[i] = -a.d;
+      }
       lo = Math.min(lo, i);
       hi = Math.max(hi, i);
     }

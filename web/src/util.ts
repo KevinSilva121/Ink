@@ -45,12 +45,20 @@ export function boxBlur(src: Float32Array, w: number, h: number, r: number): Flo
       acc += src[row + Math.min(x + r + 1, w - 1)] - src[row + Math.max(x - r, 0)];
     }
   }
-  for (let x = 0; x < w; x++) {
-    let acc = 0;
-    for (let i = -r; i <= r; i++) acc += tmp[clamp(i, 0, h - 1) * w + x];
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = acc * norm;
-      acc += tmp[Math.min(y + r + 1, h - 1) * w + x] - tmp[Math.max(y - r, 0) * w + x];
+  // Vertical linha a linha (uma soma por coluna): ler a memória em ordem é bem mais rápido do
+  // que descer coluna por coluna, e as contas são as mesmas (mesmo resultado, bit a bit).
+  const acc = new Float64Array(w);
+  for (let i = -r; i <= r; i++) {
+    const row = clamp(i, 0, h - 1) * w;
+    for (let x = 0; x < w; x++) acc[x] += tmp[row + x];
+  }
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    const add = Math.min(y + r + 1, h - 1) * w;
+    const sub = Math.max(y - r, 0) * w;
+    for (let x = 0; x < w; x++) {
+      out[row + x] = acc[x] * norm;
+      acc[x] += tmp[add + x] - tmp[sub + x];
     }
   }
   return out;

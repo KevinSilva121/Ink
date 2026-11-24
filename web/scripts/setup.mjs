@@ -10,11 +10,12 @@ const pub = join(root, 'public');
 
 const wasmSrc = join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
 const wasmDst = join(pub, 'mediapipe', 'wasm');
-// Só a versão "clássica" (a que o FilesetResolver usa por padrão). A versão em módulo ES6
-// (vision_wasm_module_internal, ~14 MB) não é usada e só aumentaria o site e o app.
+// Só a versão em módulo ES6 (vision_wasm_module_internal): a detecção roda num worker do tipo
+// módulo (vision.worker.ts), que não carrega a versão clássica. Copiar as duas só aumentaria
+// o site e o app em ~14 MB.
 rmSync(wasmDst, { recursive: true, force: true });
 mkdirSync(wasmDst, { recursive: true });
-cpSync(wasmSrc, wasmDst, { recursive: true, filter: (src) => !src.includes('_module_internal') });
+cpSync(wasmSrc, wasmDst, { recursive: true, filter: (src) => !/vision_wasm_internal\./.test(src) });
 
 const models = {
   'selfie_multiclass_256x256.tflite':

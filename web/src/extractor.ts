@@ -77,7 +77,8 @@ interface Session {
   anRgba: Uint8ClampedArray;
   /** Foto de análise → foto guardada. */
   kAH: number;
-  analysis: Promise<{ skin: Float32Array | null; pose: Landmark[] | null }>;
+  /** Análise do corpo (começa ao abrir a foto, em segundo plano). */
+  analysis: Promise<{ skin: Float32Array | null; pose: Landmark[] | null }> | null;
   /** Contorno marcado (foto de análise) e o retângulo em volta dele. */
   poly: Pt[] | null;
   rect: Rect | null;
@@ -115,7 +116,7 @@ export async function openExtractor(file: Blob, use: (blob: Blob) => void) {
       an,
       anRgba,
       kAH: hi.width / an.width,
-      analysis: runAnalysis(an),
+      analysis: null,
       poly: null,
       rect: null,
       snapped: false,
@@ -123,17 +124,43 @@ export async function openExtractor(file: Blob, use: (blob: Blob) => void) {
       work: null,
     };
     S = sess;
+    if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { __inkS: sess });
     photoCv.width = an.width;
     photoCv.height = an.height;
     drawPick();
     setStatus(pickHint());
-    // Prepara o mapa de bordas do ímã antes do primeiro toque.
-    setTimeout(() => {
-      if (S === sess && !sess.cost) sess.cost = edgeCost(anRgba, an.width, an.height);
-    }, 30);
+    // Prepara o mapa de bordas do ímã antes do primeiro toque, fora da tela principal.
+    computeCost(sess);
+    // A análise do corpo roda em segundo plano (worker): já começa, sem atrapalhar o traço.
+    void getAnalysis(sess);
   } catch (err) {
     console.error(err);
     setStatus('Não consegui abrir essa foto. Tente outra (JPG ou PNG).');
+  }
+}
+
+const getAnalysis = (sess: Session) => (sess.analysis ??= runAnalysis(sess.an));
+
+/** Mapa de bordas do ímã num "worker" (outra linha de execução); sem worker, na tela mesmo. */
+function computeCost(sess: Session) {
+  const fallback = () =>
+    setTimeout(() => {
+      if (S === sess && !sess.cost) sess.cost = edgeCost(sess.anRgba, sess.an.width, sess.an.height);
+    }, 30);
+  try {
+    const worker = new Worker(new URL('./edge.worker.ts', import.meta.url), { type: 'module' });
+    const copy = new Uint8ClampedArray(sess.anRgba);
+    worker.onmessage = (e: MessageEvent<Uint8Array>) => {
+      if (S === sess) sess.cost = e.data;
+      worker.terminate();
+    };
+    worker.onerror = () => {
+      worker.terminate();
+      fallback();
+    };
+    worker.postMessage({ rgba: copy, w: sess.an.width, h: sess.an.height }, [copy.buffer]);
+  } catch {
+    fallback();
   }
 }
 
@@ -402,6 +429,8 @@ function showPick() {
   pickView.hidden = false;
   resultView.hidden = true;
   setErase(false);
+  setConfirm(false);
+  drawLoupe(null);
 }
 
 const HINTS = {
@@ -414,7 +443,7 @@ const cutMode = () =>
 const pickHint = () => HINTS[cutMode()];
 document.querySelectorAll<HTMLInputElement>('input[name="xCut"]').forEach((el) =>
   el.addEventListener('change', () => {
-    if (S && !S.work) setStatus(pickHint());
+    if (S && !S.work && !S.poly) setStatus(pickHint());
   }),
 );
 
@@ -471,11 +500,82 @@ function canvasPoint(cv: HTMLCanvasElement, e: PointerEvent) {
   return { x: ((e.clientX - r.left) * cv.width) / r.width, y: ((e.clientY - r.top) * cv.height) / r.height };
 }
 
+// ----- Lupa: no celular o dedo cobre a linha; mostra ampliado o que está embaixo dele -----
+const loupe = $<HTMLCanvasElement>('xLoupe');
+const LOUPE_CSS = 132;
+const LOUPE_ZOOM = 2.4;
+
+function drawLoupe(p: { x: number; y: number } | null) {
+  if (!p) {
+    loupe.hidden = true;
+    return;
+  }
+  const r = photoCv.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const size = Math.round(LOUPE_CSS * dpr);
+  if (loupe.width !== size) loupe.width = loupe.height = size;
+  // Do lado oposto ao dedo, no alto da foto.
+  const fingerX = (p.x / photoCv.width) * r.width;
+  loupe.classList.toggle('right', fingerX < r.width / 2);
+  loupe.hidden = false;
+  const span = ((LOUPE_CSS / LOUPE_ZOOM) * photoCv.width) / r.width; // pixels da foto mostrados
+  const g = loupe.getContext('2d')!;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, size, size);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(photoCv, p.x - span / 2, p.y - span / 2, span, span, 0, 0, size, size);
+  // Mira no ponto exato do dedo.
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = Math.max(1, dpr);
+  const c = size / 2;
+  const a = size * 0.08;
+  g.beginPath();
+  g.moveTo(c - a, c);
+  g.lineTo(c + a, c);
+  g.moveTo(c, c - a);
+  g.lineTo(c, c + a);
+  g.stroke();
+}
+
 /** Traço do dedo (sempre) e o contorno ímã em andamento (no modo ímã). */
 let lasso: Pt[] | null = null;
 let magnet: MagnetLasso | null = null;
 let pendingPts: Pt[] = [];
 let magnetFrame = 0;
+let freeFrame = 0;
+let usesTouch = false;
+let lastPoint: { x: number; y: number } | null = null;
+
+// ----- Conferir o contorno antes de separar (dá para refazer se errou) -----
+const confirmBar = $('xConfirm');
+
+function setConfirm(on: boolean) {
+  confirmBar.hidden = !on;
+  if (on) {
+    setStatus('Confira o contorno. Se errou, toque em "Refazer contorno" (ou desenhe de novo por cima).');
+    confirmBar.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function clearContour() {
+  if (!S) return;
+  S.poly = null;
+  S.rect = null;
+  setConfirm(false);
+  drawPick();
+  setStatus(pickHint());
+}
+
+$('xRedo').addEventListener('click', clearContour);
+$('xGo').addEventListener('click', () => {
+  if (!S?.poly || busy) return;
+  setConfirm(false);
+  void process().catch((err) => {
+    console.error(err);
+    busy = false;
+    setStatus('Algo deu errado ao separar a tatuagem. Tente refazer o contorno.');
+  });
+});
 
 const polyArea = (poly: Pt[]) => {
   let a = 0;
@@ -486,17 +586,31 @@ const polyArea = (poly: Pt[]) => {
 photoCv.addEventListener('pointerdown', (e) => {
   if (!S || busy) return;
   photoCv.setPointerCapture(e.pointerId);
+  usesTouch = e.pointerType !== 'mouse';
+  // Desenhar de novo por cima descarta o contorno anterior.
+  if (S.poly) {
+    S.poly = null;
+    S.rect = null;
+    setConfirm(false);
+  }
   const p = canvasPoint(photoCv, e);
+  lastPoint = p;
   lasso = [[p.x, p.y]];
   magnet = null;
   if (cutMode() === 'ima') {
-    S.cost ??= edgeCost(S.anRgba, S.an.width, S.an.height);
-    // A faixa onde a linha pode grudar: ~14 px na tela.
-    const R = (14 * photoCv.width) / Math.max(1, photoCv.getBoundingClientRect().width);
-    magnet = new MagnetLasso(S.cost, S.an.width, S.an.height, R);
-    magnet.start(p.x, p.y);
-    drawPick(undefined, magnet);
-  }
+    if (S.cost) {
+      // A faixa onde a linha pode grudar: ~14 px na tela.
+      const R = (14 * photoCv.width) / Math.max(1, photoCv.getBoundingClientRect().width);
+      magnet = new MagnetLasso(S.cost, S.an.width, S.an.height, R);
+      magnet.start(p.x, p.y);
+      drawPick(undefined, magnet);
+    } else {
+      // O ímã ainda está calculando as bordas (alguns segundos em celular fraco): este traço é livre.
+      setStatus('O ímã ainda está se preparando: este contorno vai ser livre. Se preferir, refaça daqui a pouco.');
+      drawPick(lasso);
+    }
+  } else drawPick(lasso);
+  if (usesTouch) drawLoupe(p);
 });
 photoCv.addEventListener('pointermove', (e) => {
   if (!S || !lasso) return;
@@ -505,11 +619,18 @@ photoCv.addEventListener('pointermove', (e) => {
   if (Math.hypot(p.x - lx, p.y - ly) < 2) return;
   const q: Pt = [clamp(p.x, 0, photoCv.width - 1), clamp(p.y, 0, photoCv.height - 1)];
   lasso.push(q);
+  lastPoint = { x: q[0], y: q[1] };
   if (!magnet) {
-    drawPick(lasso);
+    // Redesenha no máximo uma vez por quadro (o dedo manda muitos pontos).
+    freeFrame ||= requestAnimationFrame(() => {
+      freeFrame = 0;
+      if (!lasso) return;
+      drawPick(lasso);
+      if (usesTouch) drawLoupe(lastPoint);
+    });
     return;
   }
-  // O ímã recalcula no máximo uma vez por quadro (o dedo manda muitos pontos).
+  // O ímã recalcula no máximo uma vez por quadro.
   pendingPts.push(q);
   magnetFrame ||= requestAnimationFrame(() => {
     magnetFrame = 0;
@@ -517,14 +638,17 @@ photoCv.addEventListener('pointermove', (e) => {
     magnet.move(pendingPts);
     pendingPts = [];
     drawPick(undefined, magnet);
+    if (usesTouch) drawLoupe(lastPoint);
   });
 });
 const endPick = () => {
   if (!S || !lasso) return;
   const trace = lasso;
   lasso = null;
+  drawLoupe(null);
   if (magnetFrame) cancelAnimationFrame(magnetFrame);
-  magnetFrame = 0;
+  if (freeFrame) cancelAnimationFrame(freeFrame);
+  magnetFrame = freeFrame = 0;
   if (magnet && pendingPts.length) magnet.move(pendingPts);
   pendingPts = [];
   let poly = magnet ? magnet.end() : trace;
@@ -550,11 +674,8 @@ const endPick = () => {
   S.poly = poly;
   S.rect = bboxOf(poly);
   drawPick();
-  void process().catch((err) => {
-    console.error(err);
-    busy = false;
-    setStatus('Algo deu errado ao separar a tatuagem. Tente marcar de novo.');
-  });
+  // Não separa na hora: a pessoa confere o contorno e confirma (ou refaz, se errou).
+  setConfirm(true);
 };
 photoCv.addEventListener('pointerup', endPick);
 photoCv.addEventListener('pointercancel', endPick);
@@ -564,9 +685,10 @@ async function process() {
   const sess = S;
   if (!sess?.rect) return;
   busy = true;
-  setStatus('Separando a tinta da pele…');
+  setStatus(sess.analysis ? 'Separando a tinta da pele…' : 'Analisando a foto (alguns segundos)…');
   await nextPaint();
-  const { skin, pose } = await sess.analysis;
+  const { skin, pose } = await getAnalysis(sess);
+  setStatus('Separando a tinta da pele…');
   await nextPaint();
   if (S !== sess || !sess.rect || !sess.poly) return; // fechou ou trocou de foto no meio
   const { an, hi, kAH, poly } = sess;

@@ -127,6 +127,16 @@ export function outline(frame: Frame, tex: Tex, pl: Placement, perEdge = 10): [n
   return pts;
 }
 
+/** Retângulo de pixels [x0, y0, x1, y1] (inclusivo). */
+export type Box = [number, number, number, number];
+
+/**
+ * Desenha a tatuagem em `out` e devolve o retângulo que pode ter mudado (ou null).
+ * `step` > 1 é a prévia rápida usada enquanto o dedo arrasta: a geometria e o desenho são
+ * calculados uma vez por bloco de step×step pixels, mas a mistura com a pele continua pixel a
+ * pixel (pele, brilho, borracha). Na tela do celular a foto aparece reduzida e a diferença
+ * não se vê; ao soltar, tudo é redesenhado com step 1.
+ */
 export function render(
   out: ImageData,
   highlight: Float32Array,
@@ -136,7 +146,8 @@ export function render(
   pl: Placement,
   /** Borracha (0..255): onde há algo na frente da pele, a tatuagem não aparece. */
   erase: Uint8Array | null = null,
-): void {
+  step = 1,
+): Box | null {
   const W = out.width;
   const H = out.height;
   const o = out.data;
@@ -181,10 +192,10 @@ export function render(
   const by0 = Math.max(0, Math.floor(y0));
   const bx1 = Math.min(W - 1, Math.ceil(x1));
   const by1 = Math.min(H - 1, Math.ceil(y1));
-  if (bx0 > bx1 || by0 > by1) return;
+  if (bx0 > bx1 || by0 > by1) return null;
 
-  // Nível do mipmap: o mais leve que ainda tenha pelo menos 1 texel por pixel.
-  const texelsPerPx = tex.w / Wt;
+  // Nível do mipmap: o mais leve que ainda tenha pelo menos 1 texel por pixel calculado.
+  const texelsPerPx = (tex.w / Wt) * step;
   let li = 0;
   while (li < tex.levels.length - 1 && texelsPerPx / 2 ** (li + 1) >= 1) li++;
   const L = tex.levels[li];
@@ -195,11 +206,15 @@ export function render(
   const cov = pl.coverage;
   const useMask = pl.clip && mask !== null;
   const R0 = frame.R;
+  step = Math.max(1, Math.floor(step));
 
-  for (let y = by0; y <= by1; y++) {
-    for (let x = bx0; x <= bx1; x++) {
-      const dx = x + 0.5 - cx;
-      const dy = y + 0.5 - cy;
+  for (let y = by0; y <= by1; y += step) {
+    const yEnd = Math.min(by1, y + step - 1);
+    for (let x = bx0; x <= bx1; x += step) {
+      const xEnd = Math.min(bx1, x + step - 1);
+      // Centro do bloco (com step 1, o centro do pixel).
+      const dx = (x + xEnd + 1) * 0.5 - cx;
+      const dy = (y + yEnd + 1) * 0.5 - cy;
       const s = dx * vx + dy * vy;
       const t = dx * ux + dy * uy;
       let a = s;
@@ -230,9 +245,20 @@ export function render(
       if (pl.flip) fx = lw - 1 - fx;
       if (fx < -1 || fy < -1 || fx > lw || fy > lh) continue;
 
-      const i = y * W + x;
-      const mk = (useMask ? mask![i] : 1) * smoothstep(0, 0.12, fore) * (erase ? 1 - erase[i] / 255 : 1);
-      if (mk <= 0.002) continue;
+      const fm = smoothstep(0, 0.12, fore);
+      if (fm <= 0.002) continue;
+      // Algum pixel do bloco aparece (pele e borracha)? Senão nem lê o desenho.
+      let visible = false;
+      for (let yy = y; yy <= yEnd && !visible; yy++) {
+        for (let xx = x; xx <= xEnd; xx++) {
+          const i = yy * W + xx;
+          if ((useMask ? mask![i] : 1) * fm * (erase ? 1 - erase[i] / 255 : 1) > 0.002) {
+            visible = true;
+            break;
+          }
+        }
+      }
+      if (!visible) continue;
 
       // Amostragem bilinear; fora do desenho = branco (sem tinta).
       const ix = Math.floor(fx);
@@ -268,43 +294,51 @@ export function render(
       const ink = Math.max(1 - ir, 1 - ig, 1 - ib);
       const halo = th / 255;
       if (ink < 0.003 && halo < 0.003) continue;
+      // Halo (vermelhidão da recém-feita) e cor de cobertura: iguais no bloco todo.
+      const hh = halo * 0.35;
+      const kr = halo > 0 ? 1 - hh * 0.02 : 1;
+      const kg = halo > 0 ? 1 - hh * 0.22 : 1;
+      const kb = halo > 0 ? 1 - hh * 0.25 : 1;
+      const covOn = cov > 0 && ink > 0.003;
+      const pr = covOn ? (1 - (1 - ir) / ink) * 255 : 0;
+      const pg = covOn ? (1 - (1 - ig) / ink) * 255 : 0;
+      const pb = covOn ? (1 - (1 - ib) / ink) * 255 : 0;
 
-      // Base = imagem atual (pode já ter outra tatuagem por baixo).
-      const p = i * 4;
-      const Br = o[p];
-      const Bg = o[p + 1];
-      const Bb = o[p + 2];
-      let Sr = Br;
-      let Sg = Bg;
-      let Sb = Bb;
-      if (halo > 0) {
-        const hh = halo * 0.35;
-        Sr *= 1 - hh * 0.02;
-        Sg *= 1 - hh * 0.22;
-        Sb *= 1 - hh * 0.25;
-      }
-      // Tinta multiplica a pele.
-      let Rr = Sr * ir;
-      let Rg = Sg * ig;
-      let Rb = Sb * ib;
-      // Cobertura: parte da tinta "pinta" por cima (cor extraída do branco).
-      if (cov > 0 && ink > 0.003) {
-        const pr = (1 - (1 - ir) / ink) * 255;
-        const pg = (1 - (1 - ig) / ink) * 255;
-        const pb = (1 - (1 - ib) / ink) * 255;
-        Rr += (Sr * (1 - ink) + pr * ink - Rr) * cov;
-        Rg += (Sg * (1 - ink) + pg * ink - Rg) * cov;
-        Rb += (Sb * (1 - ink) + pb * ink - Rb) * cov;
-      }
-      // O brilho da pele fica por cima da tinta.
-      const hl = highlight[i] * ink * 0.5;
-      Rr += hl;
-      Rg += hl;
-      Rb += hl;
+      for (let yy = y; yy <= yEnd; yy++) {
+        for (let xx = x; xx <= xEnd; xx++) {
+          const i = yy * W + xx;
+          const mk = (useMask ? mask![i] : 1) * fm * (erase ? 1 - erase[i] / 255 : 1);
+          if (mk <= 0.002) continue;
+          // Base = imagem atual (pode já ter outra tatuagem por baixo).
+          const p = i * 4;
+          const Br = o[p];
+          const Bg = o[p + 1];
+          const Bb = o[p + 2];
+          const Sr = Br * kr;
+          const Sg = Bg * kg;
+          const Sb = Bb * kb;
+          // Tinta multiplica a pele.
+          let Rr = Sr * ir;
+          let Rg = Sg * ig;
+          let Rb = Sb * ib;
+          // Cobertura: parte da tinta "pinta" por cima (cor extraída do branco).
+          if (covOn) {
+            Rr += (Sr * (1 - ink) + pr * ink - Rr) * cov;
+            Rg += (Sg * (1 - ink) + pg * ink - Rg) * cov;
+            Rb += (Sb * (1 - ink) + pb * ink - Rb) * cov;
+          }
+          // O brilho da pele fica por cima da tinta.
+          const hl = highlight[i] * ink * 0.5;
+          Rr += hl;
+          Rg += hl;
+          Rb += hl;
 
-      o[p] = Br + (Rr - Br) * mk;
-      o[p + 1] = Bg + (Rg - Bg) * mk;
-      o[p + 2] = Bb + (Rb - Bb) * mk;
+          o[p] = Br + (Rr - Br) * mk;
+          o[p + 1] = Bg + (Rg - Bg) * mk;
+          o[p + 2] = Bb + (Rb - Bb) * mk;
+        }
+      }
     }
   }
+  return [bx0, by0, bx1, by1];
 }

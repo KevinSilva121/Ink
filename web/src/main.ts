@@ -1,9 +1,10 @@
 import './style.css';
-import { analyze, loadModels, warmUp, type Landmark } from './vision';
+import { analyze, loadModels, type Landmark } from './vision';
 import { colorSkinMask, computeHighlight } from './photo';
 import { buildTexture, prepareDesign, type Design, type Look, type Tex } from './design';
 import {
   cloneEdits,
+  containsPoint,
   estimateFrame,
   flatFrame,
   noEdits,
@@ -14,8 +15,9 @@ import {
   type ContourEdits,
   type Frame,
 } from './geometry';
-import { imageToLocal, localToImage, outline, render, type Placement } from './render';
+import { imageToLocal, localToImage, outline, render, type Box, type Placement } from './render';
 import { openExtractor } from './extractor';
+import { acceptPaint, fitArea, gridSize, inkFraction, skinGrid, type Accepted, type SkinGrid } from './area';
 import { openDecal } from './decal';
 import { clamp, loadToCanvas, resampleBilinear, smoothstep } from './util';
 import {
@@ -39,7 +41,8 @@ const overlay = $<HTMLCanvasElement>('overlay');
 const ctx = stage.getContext('2d')!;
 const octx = overlay.getContext('2d')!;
 const statusEl = $('status');
-const controls = $('controls');
+const stageBox = $('stageBox');
+const stageView = $('stageView');
 const layerList = $<HTMLUListElement>('layers');
 const sizeIn = $<HTMLInputElement>('size');
 const rotIn = $<HTMLInputElement>('rot');
@@ -82,6 +85,11 @@ interface Layer {
   edits: ContourEdits;
   /** Formato usado para desenhar (detectado + correção manual). */
   frame: Frame | null;
+  /**
+   * Traços da área pintada, quando a pele da tatuagem inclui o que foi pintado com cor de pele
+   * fora da detecção (a máscara é refeita com eles ao abrir o projeto).
+   */
+  area: Stroke[] | null;
   /** Traços da borracha (em pixels da foto) e o mapa resultante. */
   strokes: Stroke[];
   erase: Uint8Array | null;
@@ -129,7 +137,7 @@ loadModels()
 
 async function runAnalysis() {
   if (!photo) return;
-  setStatus('Analisando o corpo na foto…');
+  setStatus(layers.length ? 'Analisando o corpo na foto…' : 'Analisando o corpo na foto… Enquanto isso, já pode pintar a área onde a tatuagem vai ficar.');
   await nextPaint();
   const ph = photo;
   const res = await analyze(ph.canvas);
@@ -138,19 +146,31 @@ async function runAnalysis() {
   photo.skinModel = res.skin;
   photo.pose = res.pose;
   photo.analyzed = true;
+  areaGrid = null;
+  if (tool === 'area') classifyArea();
+  areaTint = null;
   for (const L of layers) if (placed(L)) fitLayer(L, L.pl.px, L.pl.py, true, false);
   invalidateBase();
   draw();
-  hint();
+  // A pessoa pode estar no meio de uma ferramenta (a análise não trava mais a tela).
+  if (!sideMode && !adjustMode && !eraseMode && tool !== 'area' && !locked) hint();
   // Reajuste automático (a detecção terminou): não é uma edição da pessoa.
   commit(true);
+  if (tool === 'area') drawOverlay();
+  // Tocou em "Encaixar" antes de a análise terminar.
+  if (areaFitWaiting) {
+    areaFitWaiting = false;
+    fitSelToArea();
+  } else if (tool === 'area') areaHint();
 }
 
 function hint() {
   if (!photo) {
     setStatus(modelsReady || modelsFailed ? 'Escolha uma foto do corpo para começar.' : 'Preparando a detecção do corpo…');
+  } else if (tool === 'area') {
+    areaHint();
   } else if (!layers.length) {
-    setStatus('Agora adicione a tatuagem (passo 2).');
+    setStatus('Pinte a área da tatuagem (botão "Área") ou adicione a tatuagem: botão "+ Tatuagem".');
   } else if (sel && !sel.pl) {
     setStatus(`Toque na foto onde você quer a tatuagem ${numberOf(sel)}.`);
   } else if (sel) {
@@ -168,8 +188,31 @@ function installPhoto(canvas: HTMLCanvasElement) {
   stage.width = overlay.width = w;
   stage.height = overlay.height = h;
   out = new ImageData(new Uint8ClampedArray(rgba), w, h);
-  $('stageBox').hidden = false;
-  $('empty').hidden = true;
+  selBox = null;
+  areaGrid = null;
+  resetArea();
+  setEditorMode(true);
+  resetView();
+}
+
+/**
+ * Com a foto aberta, a tela vira o editor: a foto ocupa o espaço livre e as ferramentas ficam
+ * embaixo (ou ao lado, em tela larga), sem rolar a página. Sem foto, volta aos passos 1 e 2.
+ */
+function setEditorMode(on: boolean) {
+  document.body.classList.toggle('ed', on);
+  stageBox.hidden = !on;
+  $('empty').hidden = on;
+  $('steps').hidden = on;
+  $('dock').hidden = !on;
+  // A lista de tatuagens vai junto para a parte visível.
+  if (on) $('layerStrip').prepend(layerList);
+  else $('layersHome').append(layerList);
+  if (!on) {
+    setLocked(false);
+    setTool(null);
+  }
+  fitStage();
 }
 
 async function setPhoto(src: Blob) {
@@ -183,6 +226,7 @@ async function setPhoto(src: Blob) {
     L.fitted = null;
     L.frame = null;
     L.edits = noEdits();
+    L.area = null;
     L.strokes = [];
     L.erase = null;
     L.mask = null;
@@ -198,6 +242,8 @@ async function setPhoto(src: Blob) {
   draw();
   // Foto nova: o histórico recomeça daqui.
   resetHistory();
+  // O primeiro passo é pintar a área da tatuagem (com ou sem tatuagem escolhida).
+  setTool('area');
   if (modelsReady) await runAnalysis();
   else if (modelsFailed) hint();
   else setStatus('Foto carregada. Terminando de preparar a detecção do corpo…');
@@ -225,6 +271,7 @@ async function makeLayer(src: Blob | string, healed: boolean, id = newId()): Pro
     fitted: null,
     edits: noEdits(),
     frame: null,
+    area: null,
     strokes: [],
     erase: null,
     mask: null,
@@ -251,8 +298,17 @@ async function addDesigns(files: (Blob | string)[], healed = false) {
     first ??= L;
   }
   if (first) selectLayer(first);
-  hint();
   commit();
+  if (!photo || !first || first.pl) {
+    hint();
+    return;
+  }
+  // Já tem área pintada: a tatuagem vem encaixada nela. Senão, é hora de pintar.
+  if (areaStrokes.length) fitSelToArea();
+  else {
+    setTool('area');
+    areaHint();
+  }
 }
 
 function removeLayer(L: Layer) {
@@ -291,6 +347,7 @@ interface LayerSnap {
   fitted: Frame | null;
   fitPoint: [number, number] | null;
   edits: ContourEdits;
+  area: Stroke[] | null;
   strokes: Stroke[];
   mask: Float32Array | null;
   maskSource: string;
@@ -317,6 +374,7 @@ function snapshot(): Snap {
       fitted: L.fitted,
       fitPoint: L.fitPoint,
       edits: cloneEdits(L.edits),
+      area: L.area,
       strokes: [...L.strokes],
       mask: L.mask,
       maskSource: L.maskSource,
@@ -380,9 +438,8 @@ function resetHistory() {
 }
 
 function updateHistoryButtons() {
-  $('historyBar').hidden = !photo;
-  undoBtn.disabled = historyAt <= 0;
-  redoBtn.disabled = historyAt >= history.length - 1;
+  undoBtn.disabled = locked || historyAt <= 0;
+  redoBtn.disabled = locked || historyAt >= history.length - 1;
 }
 
 function restore(s: Snap) {
@@ -396,6 +453,7 @@ function restore(s: Snap) {
     L.frame = L.pl && L.fitted ? withEdits(L.fitted, L.edits) : null;
     L.mask = x.mask;
     L.maskSource = x.maskSource;
+    L.area = x.area;
     L.baseHeight = x.baseHeight;
     const sameStrokes = L.strokes.length === x.strokes.length && L.strokes.every((st, j) => st === x.strokes[j]);
     if (!sameStrokes) {
@@ -411,6 +469,10 @@ function restore(s: Snap) {
   }
   sel = s.sel && layers.includes(s.sel) ? s.sel : (layers[0] ?? null);
   // Algo no meio do caminho (arrasto, traço) é descartado.
+  if (areaStroke) {
+    areaStroke = null;
+    repaintArea();
+  }
   drag = null;
   sideDrag = null;
   stroke = null;
@@ -426,7 +488,7 @@ function restore(s: Snap) {
 }
 
 function undo() {
-  if (historyAt <= 0) return;
+  if (locked || historyAt <= 0) return;
   historyAt--;
   restore(history[historyAt]);
   updateHistoryButtons();
@@ -435,7 +497,7 @@ function undo() {
 }
 
 function redo() {
-  if (historyAt >= history.length - 1) return;
+  if (locked || historyAt >= history.length - 1) return;
   historyAt++;
   restore(history[historyAt]);
   updateHistoryButtons();
@@ -463,6 +525,8 @@ interface SavedLayer {
   edits: ContourEdits;
   strokes: Stroke[];
   maskSource: string;
+  /** Traços da área pintada (máscara "área"). */
+  area?: Stroke[] | null;
   baseHeight: number;
 }
 
@@ -610,6 +674,7 @@ async function doSave() {
         edits: cloneEdits(L.edits),
         strokes: L.strokes,
         maskSource: L.maskSource,
+        area: L.area,
         baseHeight: L.baseHeight,
       })),
     };
@@ -656,8 +721,7 @@ function newProject() {
   history = [];
   historyAt = -1;
   invalidateBase();
-  $('stageBox').hidden = true;
-  $('empty').hidden = false;
+  setEditorMode(false);
   saveStateEl.textContent = '';
   refreshPanel();
   updateHistoryButtons();
@@ -702,8 +766,13 @@ async function openProject(id: string) {
       L.baseHeight = s.baseHeight;
       if (L.pl && L.fitted) {
         L.frame = withEdits(L.fitted, L.edits);
+        const color = () => (L.fitPoint ? colorSkinMask(ph.rgba, ph.w, ph.h, L.fitPoint[0], L.fitPoint[1]) : null);
         if (s.maskSource === 'modelo' && ph.skinModel) L.mask = ph.skinModel;
-        else if (L.fitPoint) L.mask = colorSkinMask(ph.rgba, ph.w, ph.h, L.fitPoint[0], L.fitPoint[1]);
+        else if (s.maskSource === 'área' && s.area?.length) {
+          const base = ph.skinModel ?? color();
+          L.area = s.area;
+          L.mask = base ? areaMaskFor(s.area, base) : null;
+        } else L.mask = color();
       }
       L.strokes = s.strokes ?? [];
       rebuildErase(L);
@@ -889,10 +958,16 @@ onBackButton(() => {
     open.close();
     return true;
   }
-  if (adjustMode || eraseMode || sideMode) {
-    setAdjustMode(false);
-    setEraseMode(false);
-    setSideMode(false);
+  if (!addMenu.hidden) {
+    closeAddMenu();
+    return true;
+  }
+  if (tool) {
+    setTool(null);
+    return true;
+  }
+  if (view.z > 1) {
+    resetView();
     return true;
   }
   return false;
@@ -912,6 +987,18 @@ document.addEventListener('keydown', (e) => {
     redo();
   }
 });
+
+/** Miniaturas já feitas (montar uma a partir do desenho grande custa caro num celular fraco). */
+const thumbs = new WeakMap<Tex, HTMLCanvasElement>();
+
+function thumbOf(tex: Tex): HTMLCanvasElement {
+  let c = thumbs.get(tex);
+  if (!c) {
+    c = makeThumb(tex, 96);
+    thumbs.set(tex, c);
+  }
+  return c;
+}
 
 function makeThumb(tex: Tex, size: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -943,7 +1030,8 @@ function refreshPanel() {
       main.type = 'button';
       main.className = 'chip-main';
       main.setAttribute('aria-pressed', String(L === sel));
-      main.append(makeThumb(L.tex, 96));
+      main.setAttribute('aria-label', `Tatuagem ${i + 1}${L.pl ? '' : ' (falta posicionar)'}`);
+      main.append(thumbOf(L.tex));
       const label = document.createElement('span');
       label.textContent = `${i + 1}`;
       if (!L.pl) {
@@ -961,17 +1049,16 @@ function refreshPanel() {
       del.className = 'chip-del';
       del.textContent = '×';
       del.setAttribute('aria-label', `Remover tatuagem ${i + 1}`);
-      del.addEventListener('click', () => removeLayer(L));
+      del.addEventListener('click', () => {
+        if (!locked) removeLayer(L);
+      });
       li.append(main, del);
       return li;
     }),
   );
   $('designNote').textContent = sel ? sel.design.note : '';
-  controls.hidden = !placed(sel);
-  if (placed(sel)) {
-    $('editing').textContent = layers.length > 1 ? `Editando a tatuagem ${numberOf(sel)}` : 'Ajustes';
-    syncControls();
-  }
+  if (placed(sel)) syncControls();
+  syncToolUI();
 }
 
 // ---------- Ajuste ao corpo ----------
@@ -987,7 +1074,14 @@ function fitLayer(L: Layer, x: number, y: number, keepEdits: boolean, report = t
   } else {
     L.mask = colorSkinMask(photo.rgba, w, h, x, y);
     L.maskSource = L.mask[i] >= 0.5 ? 'cor' : 'nenhuma';
+    // Fora da pele (fundo, roupa): a máscara pela cor sai vazia e a tatuagem sumiria inteira.
+    // Com a detecção do corpo, vale a pele dela.
+    if (L.maskSource === 'nenhuma' && photo.skinModel) {
+      L.mask = photo.skinModel;
+      L.maskSource = 'modelo';
+    }
   }
+  L.area = null;
   if (L === sel) maskTint = null;
   L.fitPoint = [x, y];
   const prev = L.fitted;
@@ -1032,6 +1126,29 @@ function fitLayer(L: Layer, x: number, y: number, keepEdits: boolean, report = t
   describe(L);
 }
 
+/**
+ * Depois de arrastar: se a tatuagem continua no mesmo membro, o formato medido continua valendo
+ * (só ela andou). Se foi para outra parte do corpo, mede de novo ali. Se o meio dela caiu fora da
+ * pele (fundo, roupa), não mede ali: antes isso deixava a máscara de pele vazia e a tatuagem sumia.
+ */
+function settleMoved(L: Layer & { pl: Placement; frame: Frame }) {
+  if (!photo) return;
+  const { px, py } = L.pl;
+  const f = L.frame;
+  const i = clamp(Math.round(py), 0, photo.h - 1) * photo.w + clamp(Math.round(px), 0, photo.w - 1);
+  const t = (px - f.cx) * f.ux + (py - f.cy) * f.uy;
+  const sameLimb = f.ok && containsPoint(f, px, py) && (!!f.profile?.caps || Math.abs(t) < 3 * f.R);
+  const offSkin = photo.skinModel ? photo.skinModel[i] < 0.35 && (!L.mask || L.mask[i] < 0.5) : false;
+  if (sameLimb || (offSkin && f.ok)) {
+    refreshPanel();
+    draw();
+    if (sameLimb) describe(L);
+    else setStatus('O meio da tatuagem ficou fora da pele: mantive o encaixe no corpo de antes. Arraste de volta para cima da pele para reencaixar.');
+    return;
+  }
+  fitLayer(L, px, py, true);
+}
+
 function applyDefaults(L: Layer) {
   if (!photo || !L.frame || !L.pl) return;
   const minD = Math.min(photo.w, photo.h);
@@ -1053,23 +1170,22 @@ function describe(L: Layer) {
   const f = L.frame;
   if (!f) return;
   if (!f.ok) {
-    setStatus('Não achei pele nesse ponto, então apliquei sem curvatura. Toque em cima da pele para ajustar ao corpo.');
+    setStatus('Não achei pele nesse ponto, então ficou sem curvatura. Arraste a tatuagem para cima da pele.');
     return;
   }
   const parts = [`Ajustado ao corpo${f.part ? ` (${f.part})` : ''}.`];
   if (L.maskSource === 'cor') parts.push('Pele detectada pela cor.');
-  if (f.hitBorder) parts.push('O membro sai da foto, então a curvatura foi estimada.');
+  if (f.hitBorder) parts.push('O membro sai da foto: curvatura estimada.');
   const cut = cutAt(L);
   if (cut) {
+    parts.push(`Passa ${ofJoint(cut)} e é cortada ali: "Lados" encolhe só esse lado; "Contorno" (bolinha amarela) leva além.`);
+  } else {
     parts.push(
-      `A tatuagem passa ${ofJoint(cut)} e é cortada ali. Para ela caber antes, use "Ajustar lados" e puxe só esse lado para dentro; para levar além, "Ajustar contorno" e a bolinha amarela.`,
+      layers.length > 1
+        ? 'Arraste a tatuagem para mover; dois dedos sobre ela giram e mudam o tamanho; toque em outra para editá-la.'
+        : 'Arraste a tatuagem para mover; dois dedos sobre ela giram e mudam o tamanho.',
     );
   }
-  parts.push(
-    layers.length > 1
-      ? 'Arraste para mover; dois dedos giram e mudam o tamanho; toque numa tatuagem para editá-la.'
-      : 'Arraste para mover; dois dedos giram e mudam o tamanho; tocar em outro ponto reposiciona.',
-  );
   setStatus(parts.join(' '));
 }
 
@@ -1093,12 +1209,38 @@ function cutAt(L: Layer): string | null {
   return null;
 }
 
-function hitTest(x: number, y: number): Layer | null {
-  for (let k = layers.length - 1; k >= 0; k--) {
-    const L = layers[k];
-    if (L.outline && insidePolygon(x, y, L.outline)) return L;
+/**
+ * Tatuagem embaixo do dedo (a de cima primeiro). Aceita um pouco além da borda: com uma
+ * tatuagem pequena, acertar o dedo bem dentro dela é difícil.
+ */
+function hitTest(x: number, y: number, slackCss = 14): Layer | null {
+  const slack = slackCss * screenToImage();
+  for (const pass of [0, 1]) {
+    for (let k = layers.length - 1; k >= 0; k--) {
+      const L = layers[k];
+      if (!L.outline) continue;
+      if (pass === 0 ? insidePolygon(x, y, L.outline) : distToPolygon(x, y, L.outline) < slack) return L;
+    }
   }
   return null;
+}
+
+function distToPolygon(px: number, py: number, pts: [number, number][]): number {
+  let best = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [ax, ay] = pts[j];
+    const [bx, by] = pts[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / Math.max(1e-9, dx * dx + dy * dy), 0, 1);
+    best = Math.min(best, Math.hypot(px - ax - dx * t, py - ay - dy * t));
+  }
+  return best;
+}
+
+/** Pixels da foto por pixel de tela (muda com o zoom). */
+function screenToImage() {
+  return stage.width / Math.max(1, stage.getBoundingClientRect().width);
 }
 
 function insidePolygon(px: number, py: number, pts: [number, number][]): boolean {
@@ -1135,9 +1277,10 @@ function updateOutputs() {
 }
 
 const editSel = (fn: (pl: Placement, L: Layer) => void) => () => {
+  if (locked) return;
   if (placed(sel)) fn(sel.pl, sel);
   updateOutputs();
-  schedule();
+  schedule(true);
 };
 sizeIn.addEventListener('input', editSel((pl, L) => (pl.height = L.baseHeight * sliderToScale(Number(sizeIn.value)))));
 rotIn.addEventListener('input', editSel((pl) => (pl.rot = (-Number(rotIn.value) * Math.PI) / 180)));
@@ -1188,14 +1331,13 @@ type AdjustHandle =
 
 let adjustMode = false;
 let drag: AdjustHandle | null = null;
-const adjustBtn = $('adjust');
 
 function setAdjustMode(on: boolean) {
+  const was = adjustMode;
   adjustMode = on && placed(sel) && !!sel.fitted?.ok;
   if (adjustMode && eraseMode) setEraseMode(false);
   if (adjustMode && sideMode) setSideMode(false);
-  adjustBtn.setAttribute('aria-pressed', String(adjustMode));
-  adjustBtn.textContent = adjustMode ? 'Pronto' : 'Ajustar contorno';
+  syncToolUI();
   if (adjustMode && placed(sel)) {
     const joints = sel.frame.profile?.ends ? sel.frame.profile.joints : null;
     const msg = ['Verdes: arraste até a borda real da pele; cada bolinha acerta o seu trecho.'];
@@ -1204,20 +1346,10 @@ function setAdjustMode(on: boolean) {
         `Amarelas: onde o membro termina (${joints[0]} e ${joints[1]}). Arraste para a tatuagem ir além ou parar antes.`,
       );
     }
-    msg.push('Toque em "Pronto" quando terminar.');
     setStatus(msg.join(' '));
-  } else if (placed(sel)) describe(sel);
+  } else if (was && placed(sel)) describe(sel);
   drawOverlay();
 }
-
-adjustBtn.addEventListener('click', () => {
-  if (!placed(sel)) return;
-  if (!sel.fitted?.ok) {
-    setStatus('Essa tatuagem está fora da pele detectada. Toque em cima da pele para ajustar ao corpo primeiro.');
-    return;
-  }
-  setAdjustMode(!adjustMode);
-});
 
 /** Trecho do eixo coberto pela tatuagem (do contorno dela). */
 function axisSpan(L: Layer & { pl: Placement; frame: Frame }): [number, number, number] {
@@ -1318,23 +1450,20 @@ interface SideHandle {
 let sideMode = false;
 /** Arrasto de uma alça: o lado puxado e a tatuagem como estava ao começar. */
 let sideDrag: { side: SideHandle['side']; start: Placement } | null = null;
-const sidesBtn = $('sides');
 
 function setSideMode(on: boolean) {
+  const was = sideMode;
   sideMode = on && placed(sel);
   if (sideMode && adjustMode) setAdjustMode(false);
   if (sideMode && eraseMode) setEraseMode(false);
-  sidesBtn.setAttribute('aria-pressed', String(sideMode));
-  sidesBtn.textContent = sideMode ? 'Pronto' : 'Ajustar lados';
+  syncToolUI();
   if (sideMode) {
     setStatus(
-      'Puxe a bolinha de um lado para encolher ou esticar só aquele lado; o lado oposto fica parado. Ex.: puxe para dentro o lado que passa do punho. Toque em "Pronto" quando terminar.',
+      'Puxe a bolinha de um lado para encolher ou esticar só aquele lado; o oposto fica parado. Ex.: puxe para dentro o lado que passa do punho.',
     );
-  } else if (placed(sel)) describe(sel);
+  } else if (was && placed(sel)) describe(sel);
   drawOverlay();
 }
-
-sidesBtn.addEventListener('click', () => setSideMode(!sideMode));
 
 function sideHandles(L: Layer): SideHandle[] {
   if (!placed(L)) return [];
@@ -1402,26 +1531,21 @@ function dragSide(L: Layer & { pl: Placement; frame: Frame }, x: number, y: numb
 let eraseMode = false;
 let stroke: Stroke | null = null;
 let cursor: { x: number; y: number } | null = null;
-const eraseBtn = $('erase');
 
 function setEraseMode(on: boolean) {
+  const was = eraseMode;
   eraseMode = on && placed(sel);
   if (eraseMode && adjustMode) setAdjustMode(false);
   if (eraseMode && sideMode) setSideMode(false);
-  eraseBtn.setAttribute('aria-pressed', String(eraseMode));
-  eraseBtn.textContent = eraseMode ? 'Pronto' : 'Borracha';
+  syncToolUI();
   if (eraseMode) {
-    setStatus(
-      'Passe o dedo onde a tatuagem não deve aparecer (dedos ou punho por cima, roupa, relógio, cabelo). Toque em "Pronto" quando terminar.',
-    );
+    setStatus('Passe o dedo onde a tatuagem não deve aparecer (dedos, roupa, relógio, cabelo). Dois dedos aproximam a foto.');
   } else {
     cursor = null;
-    if (placed(sel)) describe(sel);
+    if (was && placed(sel)) describe(sel);
   }
   drawOverlay();
 }
-
-eraseBtn.addEventListener('click', () => setEraseMode(!eraseMode));
 
 function brushRadius() {
   return (22 * stage.width) / Math.max(1, stage.getBoundingClientRect().width);
@@ -1463,21 +1587,19 @@ function rebuildErase(L: Layer) {
   L.erase = e;
 }
 
-stage.addEventListener('pointermove', (e) => {
-  if (!eraseMode) return;
+stageBox.addEventListener('pointermove', (e) => {
+  if ((!eraseMode && tool !== 'area') || !photo) return;
   cursor = toImage(e);
-  if (!stroke) drawOverlay();
+  if (!stroke) scheduleOverlay();
 });
-stage.addEventListener('pointerleave', () => {
+stageBox.addEventListener('pointerleave', () => {
   cursor = null;
-  if (eraseMode) drawOverlay();
+  if (eraseMode || tool === 'area') scheduleOverlay();
 });
 
 $('decalBtn').addEventListener('click', () => {
   if (!placed(sel) || !sel.outline) return;
-  setAdjustMode(false);
-  setEraseMode(false);
-  setSideMode(false);
+  setTool(null);
   // A foto como está na tela (com todas as tatuagens), para marcar os pontos de medida.
   comparing = false;
   draw();
@@ -1485,7 +1607,7 @@ $('decalBtn').addEventListener('click', () => {
 });
 
 $('refit').addEventListener('click', () => {
-  if (!placed(sel)) return;
+  if (!placed(sel) || locked) return;
   fitLayer(sel, sel.pl.px, sel.pl.py, false);
   setAdjustMode(false);
   setSideMode(false);
@@ -1495,6 +1617,9 @@ $('refit').addEventListener('click', () => {
 $('save').addEventListener('click', async () => {
   if (!photo) return;
   try {
+    // Garante a versão completa (não a prévia rápida de quando o dedo está arrastando).
+    comparing = false;
+    draw();
     const name = project?.name ?? 'provink';
     await saveFile(await canvasBlob(stage, 'image/jpeg', 0.92), `${safeFileName(name)}.jpg`, 'Foto com a tatuagem');
   } catch (err) {
@@ -1509,13 +1634,6 @@ $<HTMLInputElement>('photoInput').addEventListener('change', (e) => {
   if (f) void setPhoto(f).catch(showError);
   input.value = '';
 });
-// No celular, a primeira análise da GPU demora (~9 s num aparelho de entrada). Ela é feita
-// enquanto a galeria está aberta por cima do app: a pessoa escolhendo a foto não vê a espera.
-for (const id of ['photoInput', 'extractInput']) {
-  $<HTMLInputElement>(id).addEventListener('click', () => {
-    setTimeout(() => void warmUp(), 500);
-  });
-}
 $<HTMLInputElement>('designInput').addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
   const files = [...(input.files ?? [])];
@@ -1529,12 +1647,15 @@ $<HTMLInputElement>('extractInput').addEventListener('change', (e) => {
   if (f) void openExtractor(f, (blob) => void addDesigns([blob], true).catch(showError));
 });
 document.querySelectorAll<HTMLButtonElement>('[data-example]').forEach((b) =>
-  b.addEventListener('click', () => void addDesigns([import.meta.env.BASE_URL + b.dataset.example]).catch(showError)),
+  b.addEventListener('click', () => {
+    closeAddMenu();
+    void addDesigns([import.meta.env.BASE_URL + b.dataset.example]).catch(showError);
+  }),
 );
 // Colar imagem copiada (ex.: botão direito > copiar imagem no Pinterest, depois Ctrl+V).
 document.addEventListener('paste', (e) => {
   const files = [...(e.clipboardData?.files ?? [])].filter((x) => x.type.startsWith('image/'));
-  if (files.length) void addDesigns(files).catch(showError);
+  if (files.length && !locked) void addDesigns(files).catch(showError);
 });
 
 function showError(err: unknown) {
@@ -1542,12 +1663,511 @@ function showError(err: unknown) {
   setStatus('Não consegui abrir essa imagem. Tente outra (JPG ou PNG).');
 }
 
-// ---------- Gestos na foto ----------
-const pointers = new Map<number, { x: number; y: number }>();
-let tap: { sx: number; sy: number; moved: boolean } | null = null;
-let pinch: { dist: number; ang: number } | null = null;
+// ---------- Área (pinta onde a tatuagem vai ficar e ela já vem encaixada) ----------
+/** Traços da área (pixels da foto): valem para a tatuagem selecionada ou para a próxima escolhida. */
+let areaStrokes: Stroke[] = [];
+let areaStroke: Stroke | null = null;
+/** Tocou em "Encaixar" antes de a análise do corpo terminar. */
+let areaFitWaiting = false;
+/** Os traços, opacos, no tamanho da foto (a cor vem na hora de mostrar). */
+const areaCanvas = document.createElement('canvas');
+const actx = areaCanvas.getContext('2d')!;
+/** Cor de cada célula pintada: azul no corpo, listras vermelhas fora dele (é ignorado). */
+let areaTint: HTMLCanvasElement | null = null;
+/** A foto na grade da área (cor média e pele), refeita quando muda a máscara de pele. */
+let areaGrid: { body: Float32Array; grid: SkinGrid } | null = null;
+/** O que já foi pintado, separado em corpo e fora do corpo (refeito ao fim de cada traço). */
+let areaAcc: Accepted | null = null;
+const areaSizeIn = $<HTMLInputElement>('areaSize');
+const areaGoBtn = $<HTMLButtonElement>('areaGo');
+const areaUndoBtn = $<HTMLButtonElement>('areaUndo');
+const areaClearBtn = $<HTMLButtonElement>('areaClear');
+const areaTapBtn = $<HTMLButtonElement>('areaTap');
 
-function toImage(e: PointerEvent) {
+function resetArea() {
+  areaStrokes = [];
+  areaStroke = null;
+  areaAcc = null;
+  areaTint = null;
+  areaFitWaiting = false;
+  // Mudar o tamanho limpa o canvas.
+  areaCanvas.width = photo?.w ?? 1;
+  areaCanvas.height = photo?.h ?? 1;
+  syncAreaUI();
+}
+
+const areaBrush = () => Number(areaSizeIn.value) * screenToImage();
+
+/** Pinta o traço (a partir do ponto `from`, para ir pintando enquanto o dedo anda). */
+function paintStroke(st: Stroke, from = 0, c = actx) {
+  const actx = c;
+  actx.fillStyle = actx.strokeStyle = '#000';
+  actx.lineCap = 'round';
+  actx.lineJoin = 'round';
+  actx.lineWidth = 2 * st.r;
+  if (from === 0) {
+    const [x, y] = st.pts[0];
+    actx.beginPath();
+    actx.arc(x, y, st.r, 0, Math.PI * 2);
+    actx.fill();
+  }
+  if (st.pts.length < 2) return;
+  const k0 = Math.max(0, from - 1);
+  actx.beginPath();
+  actx.moveTo(st.pts[k0][0], st.pts[k0][1]);
+  for (let k = k0 + 1; k < st.pts.length; k++) actx.lineTo(st.pts[k][0], st.pts[k][1]);
+  actx.stroke();
+}
+
+function repaintArea() {
+  actx.clearRect(0, 0, areaCanvas.width, areaCanvas.height);
+  for (const st of areaStrokes) paintStroke(st);
+  if (areaStroke) paintStroke(areaStroke);
+}
+
+function gridFor(body: Float32Array): SkinGrid {
+  if (areaGrid?.body !== body) areaGrid = { body, grid: skinGrid(photo!.rgba, photo!.w, photo!.h, body) };
+  return areaGrid.grid;
+}
+
+/** Separa o que foi pintado no corpo e fora dele (só com a detecção do corpo pronta). */
+function classifyArea() {
+  areaAcc = photo?.skinModel && areaStrokes.length ? acceptPaint(gridFor(photo.skinModel), readPaint().rgba) : null;
+  areaTint = null;
+}
+
+/** Cores da pintura, na grade: o que foi separado em corpo/fora e, onde ainda não, a detecção. */
+function areaTintCanvas(): HTMLCanvasElement | null {
+  if (!photo) return null;
+  if (areaTint) return areaTint;
+  const c = document.createElement('canvas');
+  const model = photo.skinModel;
+  if (!model) {
+    // Ainda sem a detecção do corpo: tudo azul.
+    c.width = c.height = 1;
+    const g = c.getContext('2d')!;
+    g.fillStyle = 'rgb(56, 189, 248)';
+    g.fillRect(0, 0, 1, 1);
+    return (areaTint = c);
+  }
+  const { gw, gh, skin } = gridFor(model);
+  const img = new ImageData(gw, gh);
+  const d = img.data;
+  const acc = areaAcc;
+  for (let j = 0; j < gh; j++) {
+    for (let i = 0; i < gw; i++) {
+      const k = j * gw + i;
+      const p = k * 4;
+      const body = acc?.painted[k] ? acc.ok[k] : skin[k];
+      if (body) {
+        d[p] = 56;
+        d[p + 1] = 189;
+        d[p + 2] = 248;
+        d[p + 3] = 255;
+      } else {
+        d[p] = 239;
+        d[p + 1] = 68;
+        d[p + 2] = 68;
+        d[p + 3] = (i + j) % 8 < 4 ? 255 : 70;
+      }
+    }
+  }
+  c.width = gw;
+  c.height = gh;
+  c.getContext('2d')!.putImageData(img, 0, 0);
+  return (areaTint = c);
+}
+
+/**
+ * Máscara de pele da tatuagem com a área: a pele detectada e mais o que foi pintado com cor de
+ * pele ligado a ela (bordas suaves, vindas da grade).
+ */
+function withPaintedSkin(body: Float32Array, grid: SkinGrid, acc: Accepted): Float32Array {
+  const ph = photo!;
+  const extra = new Float32Array(grid.gw * grid.gh);
+  // Todas as células aceitas (não só as da cor): nas células meio pele, meio fundo, a detecção
+  // deixava buracos quadrados na borda.
+  for (let k = 0; k < extra.length; k++) if (acc.ok[k]) extra[k] = 1;
+  const up = resampleBilinear(extra, grid.gw, grid.gh, ph.w, ph.h);
+  const m = new Float32Array(ph.w * ph.h);
+  for (let i = 0; i < m.length; i++) m[i] = Math.max(body[i], smoothstep(0.3, 0.7, up[i]));
+  return m;
+}
+
+/** Refaz a máscara de uma área guardada (ao abrir o projeto). */
+function areaMaskFor(strokes: Stroke[], body: Float32Array): Float32Array {
+  const ph = photo!;
+  const c = document.createElement('canvas');
+  c.width = ph.w;
+  c.height = ph.h;
+  const g = c.getContext('2d')!;
+  for (const st of strokes) paintStroke(st, 0, g);
+  const grid = gridFor(body);
+  return withPaintedSkin(body, grid, acceptPaint(grid, readPaint(c).rgba));
+}
+
+/** Meio dos traços pintados (para achar a pele pela cor, quando a detecção do corpo falhou). */
+function areaCenter(): [number, number] | null {
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (const st of areaStrokes) {
+    for (const [x, y] of st.pts) {
+      sx += x;
+      sy += y;
+      n++;
+    }
+  }
+  return n ? [sx / n, sy / n] : null;
+}
+
+/** A pintura reduzida para a grade da área (~480 px; o encaixe não precisa de mais). */
+function readPaint(src: HTMLCanvasElement = areaCanvas) {
+  const ph = photo!;
+  const [gw, gh] = gridSize(ph.w, ph.h);
+  const c = document.createElement('canvas');
+  c.width = gw;
+  c.height = gh;
+  const x = c.getContext('2d', { willReadFrequently: true })!;
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(src, 0, 0, gw, gh);
+  return { rgba: x.getImageData(0, 0, gw, gh).data, gw, gh };
+}
+
+function areaHint() {
+  if (!photo) return;
+  if (areaStrokes.length) {
+    // Já pintou (também quando a análise do corpo termina depois): diz o que falta.
+    const acc = areaAcc;
+    const off = !!acc && acc.nOk < acc.nPainted;
+    const go = sel ? '"Encaixar"' : '"Escolher tatuagem"';
+    setStatus(
+      off
+        ? `A parte vermelha está fora do corpo e vai ser ignorada. Quando terminar, toque em ${go}.`
+        : `Continue pintando ou toque em ${go}.`,
+    );
+  } else if (!sel) {
+    setStatus('Pinte com o dedo a área que a tatuagem vai cobrir. Depois escolha a tatuagem: ela já vem no tamanho certo.');
+  } else if (!sel.pl) {
+    setStatus(`Pinte com o dedo a área que a tatuagem ${numberOf(sel)} vai cobrir e toque em "Encaixar". Dois dedos aproximam a foto.`);
+  } else {
+    setStatus(`Pinte a nova área da tatuagem ${numberOf(sel)} e toque em "Encaixar": tamanho, giro e curva são refeitos.`);
+  }
+}
+
+function syncAreaUI() {
+  const has = areaStrokes.length > 0;
+  areaUndoBtn.disabled = !has;
+  areaClearBtn.disabled = !has;
+  areaGoBtn.textContent = sel ? 'Encaixar' : 'Escolher tatuagem';
+  areaTapBtn.hidden = !(sel && !sel.pl);
+  const v = Number(areaSizeIn.value);
+  $('areaSizeOut').textContent = v < 18 ? 'fino' : v < 36 ? 'médio' : 'grosso';
+}
+
+/** Encaixa a tatuagem selecionada na área pintada. */
+function fitSelToArea() {
+  if (!photo) return;
+  if (!areaStrokes.length) {
+    setStatus('Primeiro pinte com o dedo a área que a tatuagem vai cobrir.');
+    return;
+  }
+  if (!sel) {
+    addMenu.hidden = false;
+    addBtn.setAttribute('aria-expanded', 'true');
+    setStatus('Área pronta. Agora escolha a tatuagem: ela já vem no tamanho da área.');
+    return;
+  }
+  if (!photo.analyzed && !modelsFailed) {
+    areaFitWaiting = true;
+    setStatus('Só um instante: terminando de analisar o corpo para encaixar…');
+    return;
+  }
+  const ph = photo;
+  const L = sel;
+  let body = ph.skinModel;
+  let source = 'modelo';
+  let seed: [number, number] | null = null;
+  if (!body) {
+    // Sem a detecção do corpo: a pele é achada pela cor, a partir do meio da área.
+    seed = areaCenter();
+    if (!seed) return;
+    body = colorSkinMask(ph.rgba, ph.w, ph.h, seed[0], seed[1]);
+    source = 'cor';
+  }
+  const grid = gridFor(body);
+  const acc = acceptPaint(grid, readPaint().rgba);
+  // O que foi pintado com cor de pele, ligado à pele detectada, também recebe tinta.
+  const fitBody = acc.nColor ? withPaintedSkin(body, grid, acc) : body;
+  const r = fitArea(grid, acc, fitBody, ph.w, ph.h, ph.pose, L.tex.w / L.tex.h, inkFraction(L.tex.w, L.tex.h));
+  if (r === 'vazia') {
+    setStatus('Primeiro pinte com o dedo a área que a tatuagem vai cobrir.');
+    return;
+  }
+  if (r === 'fora') {
+    setStatus('O que você pintou está fora do corpo (fundo, roupa ou cabelo). Pinte em cima da pele.');
+    return;
+  }
+  L.mask = fitBody;
+  L.maskSource = acc.nColor ? 'área' : source;
+  L.area = acc.nColor ? [...areaStrokes] : null;
+  maskTint = null;
+  L.fitPoint = seed ?? [r.px, r.py];
+  L.fitted = r.frame;
+  L.edits = noEdits();
+  L.frame = withEdits(r.frame, L.edits);
+  L.pl = {
+    px: r.px,
+    py: r.py,
+    height: r.height,
+    stretch: r.stretch,
+    rot: r.rot,
+    curvature: r.curvature,
+    coverage: 0.15,
+    clip: true,
+    flip: flipIn.checked,
+  };
+  L.baseHeight = r.height;
+  resetArea();
+  closeAddMenu();
+  setTool(null);
+  showFrameUntil = performance.now() + 1500;
+  refreshPanel();
+  draw();
+  commit();
+
+  const f = r.frame;
+  const msg = [`Encaixada na área pintada${f.part ? ` (${f.part})` : ''}.`];
+  if (r.outside > 0.08) msg.push('O que foi pintado fora do corpo ficou de fora.');
+  if (r.dropped) msg.push('Havia áreas separadas: usei a maior.');
+  if (r.bent) {
+    const limb = r.bent === 'joelho' || r.bent === 'tornozelo' ? 'a perna esticada' : 'o braço esticado';
+    msg.push(`O membro está dobrado no ${r.bent}: a tatuagem ficou no trecho maior. Para um fechamento inteiro, use uma foto com ${limb}.`);
+  } else msg.push('Agora é só ajustar: arraste para mover; dois dedos sobre ela giram e mudam o tamanho.');
+  setStatus(msg.join(' '));
+
+  // Várias escolhidas de uma vez: a próxima também vai para uma área.
+  const next = layers.find((o) => !o.pl);
+  if (next) {
+    selectLayer(next);
+    setTool('area');
+    setStatus(`Tatuagem ${numberOf(L)} encaixada. Agora pinte a área da tatuagem ${numberOf(next)}.`);
+  }
+}
+
+areaGoBtn.addEventListener('click', () => {
+  if (!locked) fitSelToArea();
+});
+areaUndoBtn.addEventListener('click', () => {
+  areaStrokes.pop();
+  repaintArea();
+  classifyArea();
+  syncAreaUI();
+  drawOverlay();
+});
+areaClearBtn.addEventListener('click', () => {
+  areaStrokes = [];
+  repaintArea();
+  classifyArea();
+  syncAreaUI();
+  drawOverlay();
+});
+areaTapBtn.addEventListener('click', () => {
+  setTool(null);
+  if (sel && !sel.pl) setStatus(`Toque na foto onde você quer a tatuagem ${numberOf(sel)}.`);
+});
+areaSizeIn.addEventListener('input', () => {
+  syncAreaUI();
+  scheduleOverlay();
+});
+
+// ---------- Ferramentas (barra de baixo) ----------
+type Tool = 'area' | 'size' | 'rot' | 'ink' | 'sides' | 'adjust' | 'erase' | 'more';
+/** Ferramentas que funcionam sem uma tatuagem posicionada. */
+const freeTool = (t: Tool | null) => t === 'more' || t === 'area';
+let tool: Tool | null = null;
+const toolPanel = $('toolPanel');
+const toolButtons = [...document.querySelectorAll<HTMLButtonElement>('#toolbar .tool')];
+const panels = [...toolPanel.querySelectorAll<HTMLElement>('[data-panel]')];
+
+/** Abre uma ferramenta (o painel dela aparece em cima da barra) ou fecha (null). */
+function setTool(t: Tool | null) {
+  if (locked || (t && !freeTool(t) && !placed(sel)) || (t === 'area' && !photo)) t = null;
+  if (t === 'adjust' && !sel?.fitted?.ok) {
+    setStatus('Essa tatuagem está fora da pele detectada. Arraste ela para cima da pele (ou use Mais > Reajustar ao corpo).');
+    t = null;
+  }
+  const wasArea = tool === 'area';
+  tool = t;
+  if (wasArea && t !== 'area') {
+    // Saiu da área sem encaixar: o que já foi pintado fica guardado (só some da tela).
+    areaStroke = null;
+    cursor = null;
+    drawOverlay();
+  }
+  // Primeiro desliga o modo que estava ligado, depois liga o novo (cada um escreve a sua dica).
+  if (t !== 'sides' && sideMode) setSideMode(false);
+  if (t !== 'adjust' && adjustMode) setAdjustMode(false);
+  if (t !== 'erase' && eraseMode) setEraseMode(false);
+  if (t === 'sides' && !sideMode) setSideMode(true);
+  if (t === 'adjust' && !adjustMode) setAdjustMode(true);
+  if (t === 'erase' && !eraseMode) setEraseMode(true);
+  syncToolUI();
+  if (t === 'area' && !wasArea) {
+    areaHint();
+    drawOverlay();
+  }
+}
+
+/** Deixa a barra e o painel de acordo com a ferramenta e com a tatuagem selecionada. */
+function syncToolUI() {
+  if ((tool === 'sides' && !sideMode) || (tool === 'adjust' && !adjustMode) || (tool === 'erase' && !eraseMode)) tool = null;
+  if (locked || (tool && !freeTool(tool) && !placed(sel))) tool = null;
+  for (const b of toolButtons) {
+    b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
+    b.disabled = locked || (!freeTool(b.dataset.tool as Tool) && !placed(sel));
+  }
+  syncAreaUI();
+  toolPanel.hidden = !tool;
+  for (const p of panels) p.hidden = p.dataset.panel !== tool;
+  const noLayer = !placed(sel);
+  for (const id of ['refit', 'decalBtn']) $<HTMLButtonElement>(id).disabled = noLayer || locked;
+  for (const el of [curvIn, clipIn, flipIn]) el.disabled = noLayer || locked;
+  addBtn.disabled = locked;
+}
+
+for (const b of toolButtons) {
+  b.addEventListener('click', () => {
+    const t = b.dataset.tool as Tool;
+    setTool(tool === t ? null : t);
+  });
+}
+for (const b of toolPanel.querySelectorAll<HTMLButtonElement>('[data-done]')) b.addEventListener('click', () => setTool(null));
+
+// ----- Adicionar tatuagem (menu do botão "+") -----
+const addBtn = $<HTMLButtonElement>('addBtn');
+const addMenu = $('addMenu');
+
+function closeAddMenu() {
+  addMenu.hidden = true;
+  addBtn.setAttribute('aria-expanded', 'false');
+}
+
+addBtn.addEventListener('click', () => {
+  const open = addMenu.hidden;
+  addMenu.hidden = !open;
+  addBtn.setAttribute('aria-expanded', String(open));
+});
+addMenu.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('label')) setTimeout(closeAddMenu, 0);
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!addMenu.hidden && !(e.target as HTMLElement).closest('.add-wrap')) closeAddMenu();
+});
+
+// ----- Trava: com a edição travada, tocar na foto não muda nada (só aproxima e afasta) -----
+let locked = false;
+const lockBtn = $('lock');
+
+function setLocked(on: boolean) {
+  if (on === locked) return;
+  locked = on;
+  if (on) {
+    setTool(null);
+    closeAddMenu();
+    cancelGesture();
+  }
+  lockBtn.setAttribute('aria-pressed', String(on));
+  const label = on ? 'Destravar a edição' : 'Travar a edição';
+  lockBtn.setAttribute('aria-label', label);
+  lockBtn.title = label;
+  document.body.classList.toggle('locked', on);
+  syncToolUI();
+  updateHistoryButtons();
+  if (on) setStatus('Edição travada: tocar na foto não muda nada (dois dedos aproximam). Toque no cadeado para editar de novo.');
+  else if (photo) {
+    if (placed(sel)) describe(sel);
+    else hint();
+  }
+}
+lockBtn.addEventListener('click', () => setLocked(!locked));
+
+// ---------- Enquadramento: a foto encaixada na caixa e o zoom de dois dedos ----------
+const view = { z: 1, x: 0, y: 0 };
+let fitW = 0;
+let fitH = 0;
+const fitViewBtn = $('fitView');
+
+/** Encaixa a foto na caixa (chamado quando a tela muda de tamanho). */
+function fitStage() {
+  if (!photo || stageBox.hidden) return;
+  const bw = stageBox.clientWidth;
+  const bh = stageBox.clientHeight;
+  if (!bw || !bh) return;
+  const s = Math.min(bw / photo.w, bh / photo.h);
+  fitW = photo.w * s;
+  fitH = photo.h * s;
+  stageView.style.width = `${fitW}px`;
+  stageView.style.height = `${fitH}px`;
+  stageView.style.left = `${(bw - fitW) / 2}px`;
+  stageView.style.top = `${(bh - fitH) / 2}px`;
+  applyView();
+}
+new ResizeObserver(() => fitStage()).observe(stageBox);
+
+function applyView() {
+  const mx = Math.max(0, (fitW * view.z - stageBox.clientWidth) / 2);
+  const my = Math.max(0, (fitH * view.z - stageBox.clientHeight) / 2);
+  view.x = clamp(view.x, -mx, mx);
+  view.y = clamp(view.y, -my, my);
+  stageView.style.transform = view.z === 1 ? '' : `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+  fitViewBtn.hidden = view.z < 1.02;
+  scheduleOverlay();
+}
+
+/** Zoom em torno de um ponto da tela (fica parado embaixo do dedo/cursor). */
+function zoomAt(clientX: number, clientY: number, z: number, from = { ...view }) {
+  const r = stageBox.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const nz = clamp(z, 1, 8);
+  const k = nz / from.z;
+  view.x = clientX - cx - k * (clientX - cx - from.x);
+  view.y = clientY - cy - k * (clientY - cy - from.y);
+  view.z = nz;
+  if (nz === 1) view.x = view.y = 0;
+  applyView();
+}
+
+function resetView() {
+  view.z = 1;
+  view.x = view.y = 0;
+  applyView();
+}
+fitViewBtn.addEventListener('click', resetView);
+
+// ---------- Gestos na foto ----------
+// Regras para não estragar a edição sem querer:
+// - só arrasta a tatuagem quem começa o toque EM CIMA dela; tocar fora não muda nada;
+// - dois dedos em cima da tatuagem giram e mudam o tamanho; fora dela, aproximam a foto;
+// - com a trava ligada, qualquer toque só move e aproxima a foto.
+interface Pt {
+  x: number;
+  y: number;
+  cx: number;
+  cy: number;
+}
+const pointers = new Map<number, Pt>();
+type Gesture =
+  | { k: 'tattoo' | 'place' | 'pan'; sx: number; sy: number; moved: boolean }
+  | { k: 'pinchT'; dist: number; ang: number }
+  | { k: 'pinchV'; d0: number; mx: number; my: number; from: { z: number; x: number; y: number } }
+  | { k: 'mode' }
+  | { k: 'done' };
+let gesture: Gesture | null = null;
+
+function toImage(e: { clientX: number; clientY: number }) {
   const r = stage.getBoundingClientRect();
   return { x: ((e.clientX - r.left) * stage.width) / r.width, y: ((e.clientY - r.top) * stage.height) / r.height };
 }
@@ -1559,183 +2179,275 @@ function twoFinger() {
 
 const touch = () => {
   showFrameUntil = performance.now() + 1200;
-  schedule();
+  schedule(true);
 };
 
-stage.addEventListener('pointerdown', (e) => {
-  stage.setPointerCapture(e.pointerId);
+/** Interrompe o que um dedo estava fazendo (ex.: entrou o segundo dedo, ou travou a edição). */
+function cancelGesture() {
+  if (areaStroke) {
+    // Traço da área que virou gesto de dois dedos: sai da pintura.
+    areaStroke = null;
+    repaintArea();
+    scheduleOverlay();
+  }
+  if (stroke) {
+    // Traço da borracha que virou gesto de dois dedos: descarta o pedaço apagado.
+    stroke = null;
+    if (sel) rebuildErase(sel);
+    schedule();
+  }
+  if (drag || sideDrag) {
+    drag = null;
+    sideDrag = null;
+    commit();
+    drawOverlay();
+  }
+  gesture = pointers.size ? { k: 'done' } : null;
+}
+
+stageBox.addEventListener('pointerdown', (e) => {
+  if (!photo || (e.target as HTMLElement).closest('.fab, .fabs')) return;
+  stageBox.setPointerCapture(e.pointerId);
   const p = toImage(e);
-  pointers.set(e.pointerId, p);
+  pointers.set(e.pointerId, { ...p, cx: e.clientX, cy: e.clientY });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const onTattoo =
+      !locked &&
+      !sideMode &&
+      !adjustMode &&
+      !eraseMode &&
+      tool !== 'area' &&
+      placed(sel) &&
+      (gesture?.k === 'tattoo' || hitTest(mid.x, mid.y, 30) === sel);
+    cancelGesture();
+    if (onTattoo) {
+      gesture = { k: 'pinchT', ...twoFinger() };
+    } else {
+      gesture = {
+        k: 'pinchV',
+        d0: Math.max(1, Math.hypot(b.cx - a.cx, b.cy - a.cy)),
+        mx: (a.cx + b.cx) / 2,
+        my: (a.cy + b.cy) / 2,
+        from: { ...view },
+      };
+    }
+    return;
+  }
+  if (pointers.size > 2) return;
+
+  const startPan = (): Gesture => ({ k: 'pan', sx: e.clientX, sy: e.clientY, moved: false });
+  if (locked) {
+    gesture = startPan();
+    return;
+  }
+  if (tool === 'area') {
+    // Pincel da área: pinta (dois dedos aproximam a foto).
+    areaStroke = { r: areaBrush(), pts: [[p.x, p.y]] };
+    paintStroke(areaStroke);
+    cursor = p;
+    scheduleOverlay();
+    gesture = { k: 'mode' };
+    return;
+  }
   if (eraseMode) {
-    tap = null;
-    if (placed(sel) && photo && pointers.size === 1) {
+    if (placed(sel) && photo) {
       stroke = { r: brushRadius(), pts: [[p.x, p.y]] };
       sel.erase ??= new Uint8Array(photo.w * photo.h);
       stamp(sel.erase, p.x, p.y, stroke.r);
-      schedule();
+      schedule(true);
+      gesture = { k: 'mode' };
     }
     return;
   }
-  if (sideMode) {
-    // No modo de lados, só as alças respondem (a mais perto do dedo).
-    tap = null;
-    if (placed(sel) && pointers.size === 1) {
-      let best: SideHandle | null = null;
-      let bd = handleRadius() * HANDLE_HIT;
-      for (const hd of sideHandles(sel)) {
+  if (sideMode || adjustMode) {
+    // Só as bolinhas respondem (a mais perto do dedo); fora delas, o dedo move a foto.
+    let best: SideHandle | AdjustHandle | null = null;
+    let bd = handleRadius() * HANDLE_HIT;
+    if (placed(sel)) {
+      for (const hd of sideMode ? sideHandles(sel) : adjustHandles(sel)) {
         const d = Math.hypot(p.x - hd.x, p.y - hd.y);
         if (d < bd) {
           bd = d;
           best = hd;
         }
       }
-      if (best) sideDrag = { side: best.side, start: { ...sel.pl } };
     }
+    if (best && sideMode && placed(sel)) sideDrag = { side: (best as SideHandle).side, start: { ...sel.pl } };
+    else if (best && adjustMode) drag = best as AdjustHandle;
+    gesture = best ? { k: 'mode' } : startPan();
     return;
   }
-  if (adjustMode) {
-    // No modo de contorno, só as bolinhas respondem (a mais perto do dedo).
-    tap = null;
-    if (sel && pointers.size === 1) {
-      let best: AdjustHandle | null = null;
-      let bd = handleRadius() * HANDLE_HIT;
-      for (const hd of adjustHandles(sel)) {
-        const d = Math.hypot(p.x - hd.x, p.y - hd.y);
-        if (d < bd) {
-          bd = d;
-          best = hd;
-        }
-      }
-      if (best) drag = best;
-    }
+  if (sel && !sel.pl) {
+    // Tatuagem ainda sem lugar: o toque escolhe onde ela fica.
+    gesture = { k: 'place', sx: e.clientX, sy: e.clientY, moved: false };
     return;
   }
-  if (pointers.size === 1) {
-    tap = { sx: e.clientX, sy: e.clientY, moved: false };
+  const hit = hitTest(p.x, p.y);
+  if (hit) {
     // Encostou numa tatuagem: ela passa a ser a editada (e é a que vai ser arrastada).
-    if (!sel || sel.pl) {
-      const hit = hitTest(p.x, p.y);
-      if (hit && hit !== sel) {
-        selectLayer(hit);
-        describe(hit);
-      }
+    if (hit !== sel) {
+      selectLayer(hit);
+      describe(hit);
     }
-  } else if (pointers.size === 2) {
-    tap = null;
-    pinch = twoFinger();
-  }
+    gesture = { k: 'tattoo', sx: e.clientX, sy: e.clientY, moved: false };
+  } else gesture = startPan();
 });
 
-stage.addEventListener('pointermove', (e) => {
+stageBox.addEventListener('pointermove', (e) => {
   const prev = pointers.get(e.pointerId);
   if (!prev) return;
   const p = toImage(e);
-  pointers.set(e.pointerId, p);
-  if (drag) {
-    if (placed(sel)) {
-      dragHandle(sel, drag, p.x - prev.x, p.y - prev.y);
-      schedule();
-    }
+  pointers.set(e.pointerId, { ...p, cx: e.clientX, cy: e.clientY });
+  const g = gesture;
+  if (!g) return;
+  if (g.k === 'pinchV') {
+    if (pointers.size < 2) return;
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+    // Zoom em volta do ponto entre os dedos que estava embaixo deles no começo + arrasto.
+    const mx = (a.cx + b.cx) / 2;
+    const my = (a.cy + b.cy) / 2;
+    zoomAt(g.mx, g.my, (g.from.z * d) / g.d0, g.from);
+    view.x += mx - g.mx;
+    view.y += my - g.my;
+    applyView();
     return;
   }
-  if (sideDrag) {
-    if (placed(sel)) {
-      dragSide(sel, p.x, p.y);
-      syncControls();
-      schedule();
-    }
-    return;
-  }
-  if (stroke) {
-    if (sel?.erase) {
-      const last = stroke.pts[stroke.pts.length - 1];
-      stroke.pts.push([p.x, p.y]);
-      stampSegment(sel.erase, last, [p.x, p.y], stroke.r);
-      schedule();
-    }
-    return;
-  }
-  if (adjustMode || eraseMode || sideMode) return;
-  if (pointers.size === 2 && pinch && placed(sel)) {
-    const g = twoFinger();
+  if (g.k === 'pinchT') {
+    if (pointers.size < 2 || !placed(sel)) return;
+    const t = twoFinger();
     const pl = sel.pl;
-    pl.height = clamp((pl.height * g.dist) / Math.max(1, pinch.dist), sel.baseHeight * SIZE_MIN, sel.baseHeight * SIZE_MAX);
-    let d = g.ang - pinch.ang;
+    pl.height = clamp((pl.height * t.dist) / Math.max(1, g.dist), sel.baseHeight * SIZE_MIN, sel.baseHeight * SIZE_MAX);
+    let d = t.ang - g.ang;
     if (d > Math.PI) d -= 2 * Math.PI;
     if (d < -Math.PI) d += 2 * Math.PI;
     pl.rot -= d;
-    pinch = g;
+    g.dist = t.dist;
+    g.ang = t.ang;
     syncControls();
     touch();
     return;
   }
-  if (pointers.size === 1 && tap) {
-    if (!tap.moved && Math.hypot(e.clientX - tap.sx, e.clientY - tap.sy) > 8) tap.moved = true;
-    if (tap.moved && placed(sel)) {
-      sel.pl.px += p.x - prev.x;
-      sel.pl.py += p.y - prev.y;
-      touch();
+  if (g.k === 'mode') {
+    if (drag && placed(sel)) {
+      dragHandle(sel, drag, p.x - prev.x, p.y - prev.y);
+      schedule(true);
+    } else if (sideDrag && placed(sel)) {
+      dragSide(sel, p.x, p.y);
+      syncControls();
+      schedule(true);
+    } else if (areaStroke) {
+      areaStroke.pts.push([p.x, p.y]);
+      paintStroke(areaStroke, areaStroke.pts.length - 1);
+      cursor = p;
+      scheduleOverlay();
+    } else if (stroke && sel?.erase) {
+      const last = stroke.pts[stroke.pts.length - 1];
+      stroke.pts.push([p.x, p.y]);
+      stampSegment(sel.erase, last, [p.x, p.y], stroke.r);
+      cursor = p;
+      schedule(true);
     }
+    return;
+  }
+  if (g.k === 'done' || pointers.size !== 1) return;
+  if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) g.moved = true;
+  if (!g.moved) return;
+  if (g.k === 'tattoo' && placed(sel)) {
+    sel.pl.px += p.x - prev.x;
+    sel.pl.py += p.y - prev.y;
+    touch();
+  } else if (g.k === 'pan' || g.k === 'place') {
+    // Arrastar fora da tatuagem (ou antes de posicioná-la) só move a foto aproximada.
+    view.x += e.clientX - prev.cx;
+    view.y += e.clientY - prev.cy;
+    applyView();
   }
 });
 
 function endPointer(e: PointerEvent) {
   if (!pointers.has(e.pointerId)) return;
   pointers.delete(e.pointerId);
-  if (pointers.size < 2 && pinch) {
-    pinch = null;
+  const g = gesture;
+  if (g?.k === 'pinchT' && pointers.size < 2) {
     // Depois de mudar o tamanho com dois dedos, avisa se a tatuagem passou da ponta do membro.
     if (placed(sel)) describe(sel);
+    schedule();
     commit();
+    gesture = pointers.size ? { k: 'done' } : null;
+    return;
   }
-  if (pointers.size === 0 && (drag || sideDrag)) {
+  if (g?.k === 'pinchV' && pointers.size < 2) {
+    gesture = pointers.size ? { k: 'done' } : null;
+    return;
+  }
+  if (pointers.size > 0) return;
+  gesture = null;
+  if (drag || sideDrag) {
     // Terminou de puxar uma bolinha (contorno ou lados): vira um passo (se mudou algo).
     drag = null;
     sideDrag = null;
-    drawOverlay();
+    schedule();
     commit();
+    return;
   }
-  if (pointers.size === 0 && stroke) {
+  if (stroke) {
     if (stroke.pts.length) sel?.strokes.push(stroke);
     stroke = null;
-    commit();
-  }
-  if (pointers.size > 0 || !tap) return;
-  const t = tap;
-  tap = null;
-  if (e.type !== 'pointerup' || !photo) return;
-  if (t.moved) {
-    // Depois de arrastar, reajusta ao corpo no novo ponto mantendo tamanho e giro.
-    if (placed(sel)) fitLayer(sel, sel.pl.px, sel.pl.py, true);
+    schedule();
     commit();
     return;
   }
-  if (!sel) {
-    setStatus('Adicione uma tatuagem primeiro (passo 2).');
+  if (areaStroke) {
+    const st = areaStroke;
+    areaStrokes.push(st);
+    areaStroke = null;
+    classifyArea();
+    syncAreaUI();
+    drawOverlay();
+    areaHint();
     return;
   }
-  const p = toImage(e);
-  if (!sel.pl) {
+  if (!g || !photo || (g.k !== 'tattoo' && g.k !== 'place' && g.k !== 'pan')) return;
+  if (g.k === 'tattoo') {
+    if (g.moved && placed(sel)) {
+      settleMoved(sel);
+      commit();
+    } else touch();
+    return;
+  }
+  if (g.moved || e.type !== 'pointerup') return;
+  if (g.k === 'place' && sel && !sel.pl) {
+    const p = toImage(e);
     fitLayer(sel, p.x, p.y, false);
     commit();
-  } else if (hitTest(p.x, p.y) !== sel) {
-    // Tocou fora da tatuagem editada: leva ela para lá, mantendo tamanho e giro.
-    fitLayer(sel, p.x, p.y, true);
-    commit();
-  } else {
-    touch();
+    return;
   }
+  // Toque fora da tatuagem: não muda nada, só explica.
+  if (locked) setStatus('Edição travada. Toque no cadeado (no canto da foto) para editar de novo.');
+  else if (!sel) setStatus('Adicione uma tatuagem primeiro: botão "+ Tatuagem".');
+  else if (placed(sel) && !sideMode && !adjustMode)
+    setStatus('Para mover a tatuagem, arraste ela com o dedo. Dois dedos fora dela aproximam a foto.');
 }
-stage.addEventListener('pointerup', endPointer);
-stage.addEventListener('pointercancel', endPointer);
+stageBox.addEventListener('pointerup', endPointer);
+stageBox.addEventListener('pointercancel', endPointer);
 
 /** A roda do mouse dispara muitos eventos: o passo é guardado quando ela para. */
 let wheelTimer = 0;
-stage.addEventListener(
+stageBox.addEventListener(
   'wheel',
   (e) => {
-    if (!placed(sel)) return;
+    if (!photo) return;
     e.preventDefault();
+    const p = toImage(e);
+    // Em cima da tatuagem: tamanho (Shift: giro). Fora dela (ou travado): zoom da foto.
+    const onTattoo = !locked && !sideMode && !adjustMode && !eraseMode && tool !== 'area' && placed(sel) && hitTest(p.x, p.y, 0) === sel;
+    if (!onTattoo || !placed(sel)) {
+      zoomAt(e.clientX, e.clientY, view.z * Math.exp(-e.deltaY * 0.0015));
+      return;
+    }
     const pl = sel.pl;
     if (e.shiftKey) pl.rot -= e.deltaY * 0.003;
     else pl.height = clamp(pl.height * Math.exp(-e.deltaY * 0.0015), sel.baseHeight * SIZE_MIN, sel.baseHeight * SIZE_MAX);
@@ -1747,24 +2459,73 @@ stage.addEventListener(
   { passive: false },
 );
 
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+  if (!addMenu.hidden) closeAddMenu();
+  else if (tool) setTool(null);
+});
+
 // ---------- Desenho ----------
+// A foto com as outras tatuagens fica guardada (baseCache); a selecionada é redesenhada por
+// cima, e só no retângulo onde ela estava e onde está agora (selBox). Enquanto o dedo arrasta,
+// a prévia usa blocos de 2×2 pixels; parou, sai a versão completa.
+const DRAFT_STEP = 2;
 let scheduled = false;
-function schedule() {
+let wantFull = false;
+let fullTimer = 0;
+/** Retângulo onde a tatuagem selecionada foi desenhada por cima da base em `out`. */
+let selBox: Box | null = null;
+
+function schedule(draft = false) {
+  if (draft) {
+    clearTimeout(fullTimer);
+    fullTimer = window.setTimeout(() => schedule(false), 160);
+  } else wantFull = true;
   if (scheduled) return;
   scheduled = true;
   requestAnimationFrame(() => {
     scheduled = false;
-    draw();
+    const full = wantFull;
+    wantFull = false;
+    draw(full ? 1 : DRAFT_STEP);
   });
+}
+
+let overlayScheduled = false;
+function scheduleOverlay() {
+  if (overlayScheduled) return;
+  overlayScheduled = true;
+  requestAnimationFrame(() => {
+    overlayScheduled = false;
+    drawOverlay();
+  });
+}
+
+const union = (a: Box | null, b: Box | null): Box | null =>
+  !a ? b : !b ? a : [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+
+/** Volta a base (foto + outras tatuagens) para dentro do retângulo. */
+function restoreBase(b: Box) {
+  if (!photo || !out || !baseCache) return;
+  const W = photo.w;
+  for (let y = b[1]; y <= b[3]; y++) {
+    const s = (y * W + b[0]) * 4;
+    out.data.set(baseCache.subarray(s, (y * W + b[2] + 1) * 4), s);
+  }
 }
 
 let frameTimer = 0;
 
-function draw() {
+function draw(step = 1) {
   if (!photo || !out) return;
+  if (step === 1) clearTimeout(fullTimer);
   for (const L of layers) L.outline = placed(L) ? outline(L.frame, L.tex, L.pl) : null;
+  const all: Box = [0, 0, photo.w - 1, photo.h - 1];
+  let dirty: Box | null;
   if (comparing) {
     out.data.set(photo.rgba);
+    dirty = all;
+    selBox = all; // na volta, a base inteira é restaurada
   } else {
     if (!baseCache) {
       out.data.set(photo.rgba);
@@ -1772,10 +2533,16 @@ function draw() {
         if (L !== sel && placed(L)) render(out, photo.highlight, L.mask, L.frame, L.tex, L.pl, L.erase);
       }
       baseCache = out.data.slice();
-    } else out.data.set(baseCache);
-    if (placed(sel)) render(out, photo.highlight, sel.mask, sel.frame, sel.tex, sel.pl, sel.erase);
+      dirty = all;
+    } else {
+      dirty = selBox;
+      if (selBox) restoreBase(selBox);
+    }
+    const nb = placed(sel) ? render(out, photo.highlight, sel.mask, sel.frame, sel.tex, sel.pl, sel.erase, step) : null;
+    dirty = union(dirty, nb);
+    selBox = nb;
   }
-  ctx.putImageData(out, 0, 0);
+  if (dirty) ctx.putImageData(out, 0, 0, dirty[0], dirty[1], dirty[2] - dirty[0] + 1, dirty[3] - dirty[1] + 1);
   drawOverlay();
   const remaining = showFrameUntil - performance.now();
   if (remaining > 0) {
@@ -1789,7 +2556,20 @@ let maskTint: ImageData | null = null;
 function drawOverlay() {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!photo || comparing) return;
-  const lw = Math.max(2, Math.min(photo.w, photo.h) / 350);
+  // Linhas com a mesma grossura na tela, com ou sem zoom.
+  const lw = Math.max(2, Math.min(photo.w, photo.h) / 350) / view.z;
+
+  if (tool === 'area' && (areaStrokes.length || areaStroke)) {
+    // A pintura ganha a cor de cada ponto: azul no corpo, vermelho listrado fora dele.
+    const tint = areaTintCanvas();
+    octx.save();
+    octx.drawImage(areaCanvas, 0, 0);
+    octx.globalCompositeOperation = 'source-in';
+    octx.globalAlpha = 0.5;
+    octx.imageSmoothingEnabled = false;
+    if (tint) octx.drawImage(tint, 0, 0, photo.w, photo.h);
+    octx.restore();
+  }
 
   if (debugIn.checked && placed(sel)) {
     const { mask, frame } = sel;
@@ -1855,9 +2635,9 @@ function drawOverlay() {
     }
   }
 
-  if (eraseMode && cursor) {
+  if ((eraseMode || tool === 'area') && cursor) {
     octx.beginPath();
-    octx.arc(cursor.x, cursor.y, brushRadius(), 0, Math.PI * 2);
+    octx.arc(cursor.x, cursor.y, tool === 'area' ? areaBrush() : brushRadius(), 0, Math.PI * 2);
     octx.lineWidth = lw * 0.8;
     octx.strokeStyle = 'rgba(255,255,255,0.9)';
     octx.stroke();
@@ -1974,6 +2754,14 @@ if (new URLSearchParams(location.search).has('debug')) {
       },
       sides() {
         return sel ? sideHandles(sel) : [];
+      },
+      /** Mede o desenho: passo 1 = completo, 2 = prévia; full = como era antes (foto inteira). */
+      bench(step: number, full: boolean) {
+        // Como era antes: a foto inteira copiada e enviada para a tela a cada quadro.
+        if (full && photo) selBox = [0, 0, photo.w - 1, photo.h - 1];
+        const t = performance.now();
+        draw(step);
+        return performance.now() - t;
       },
     },
   });
