@@ -1,5 +1,5 @@
 import './style.css';
-import { analyze, loadModels, type Landmark } from './vision';
+import { analyze, loadModels, warmUp, type Landmark } from './vision';
 import { colorSkinMask, computeHighlight } from './photo';
 import { buildTexture, prepareDesign, type Design, type Look, type Tex } from './design';
 import {
@@ -17,7 +17,7 @@ import {
 import { imageToLocal, localToImage, outline, render, type Placement } from './render';
 import { openExtractor } from './extractor';
 import { openDecal } from './decal';
-import { clamp, loadToCanvas, smoothstep } from './util';
+import { clamp, loadToCanvas, resampleBilinear, smoothstep } from './util';
 import {
   askPersistence,
   deleteProject,
@@ -131,7 +131,10 @@ async function runAnalysis() {
   if (!photo) return;
   setStatus('Analisando o corpo na foto…');
   await nextPaint();
-  const res = analyze(photo.canvas);
+  const ph = photo;
+  const res = await analyze(ph.canvas);
+  // Trocou de foto (ou abriu um projeto) enquanto analisava: esta análise não vale mais.
+  if (photo !== ph) return;
   photo.skinModel = res.skin;
   photo.pose = res.pose;
   photo.analyzed = true;
@@ -485,17 +488,38 @@ const saveStateEl = $('saveState');
 const defaultName = () =>
   `Projeto de ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 
-const canvasBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
-  new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob'))), type, q));
+/**
+ * Imagem do canvas como arquivo. Não usa toBlob: o navegador só faz esse trabalho quando
+ * está "ocioso" e, num celular ocupado, cada chamada esperava ~4 s (a foto, ~13 s).
+ * toDataURL codifica na hora.
+ */
+async function canvasBlob(c: HTMLCanvasElement, type: string, q?: number): Promise<Blob> {
+  const url = c.toDataURL(type, q);
+  const bin = atob(url.slice(url.indexOf(',') + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
 
 /** Máscara de pele (0..1) ↔ imagem PNG em tons de cinza (sem perda, 8 bits). */
+/**
+ * A máscara é guardada pequena (até 512 px): o modelo de pele trabalha em 256 px, então
+ * guardar no tamanho da foto só gastava tempo (codificar PNG grande leva segundos em celular
+ * fraco). Ao abrir, volta ao tamanho da foto por interpolação.
+ */
+const MASK_SIDE = 512;
+
 function maskToCanvas(m: Float32Array, w: number, h: number): HTMLCanvasElement {
+  const s = Math.min(1, MASK_SIDE / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * s));
+  const ch = Math.max(1, Math.round(h * s));
+  const small = s < 1 ? resampleBilinear(m, w, h, cw, ch) : m;
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const img = new ImageData(w, h);
-  for (let i = 0; i < m.length; i++) {
-    const v = Math.round(clamp(m[i], 0, 1) * 255);
+  c.width = cw;
+  c.height = ch;
+  const img = new ImageData(cw, ch);
+  for (let i = 0; i < small.length; i++) {
+    const v = Math.round(clamp(small[i], 0, 1) * 255);
     img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
     img.data[i * 4 + 3] = 255;
   }
@@ -504,11 +528,12 @@ function maskToCanvas(m: Float32Array, w: number, h: number): HTMLCanvasElement 
 }
 
 async function blobToMask(b: Blob, w: number, h: number): Promise<Float32Array> {
+  // Abre no tamanho em que foi guardada (projetos antigos: tamanho da foto) e amplia.
   const c = await loadToCanvas(b, Math.max(w, h));
-  const d = c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
-  const m = new Float32Array(w * h);
+  const d = c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height).data;
+  const m = new Float32Array(c.width * c.height);
   for (let i = 0; i < m.length; i++) m[i] = d[i * 4] / 255;
-  return m;
+  return c.width === w && c.height === h ? m : resampleBilinear(m, c.width, c.height, w, h);
 }
 
 function scheduleSave() {
@@ -537,13 +562,28 @@ async function doSave() {
       void askPersistence();
     }
     const P = project;
+    // Tempo de cada etapa (no console), para achar o que pesa em celular fraco.
+    const tm: string[] = [];
+    let t = performance.now();
+    const lap = (what: string) => {
+      const now = performance.now();
+      tm.push(`${what} ${Math.round(now - t)} ms`);
+      t = now;
+    };
     if (!P.saved.has(P.photoKey)) {
-      await putBlob(P.photoKey, await canvasBlob(ph.canvas, 'image/png'));
+      // JPEG de alta qualidade: em celular fraco, PNG desse tamanho levava ~13 s para codificar.
+      const b = await canvasBlob(ph.canvas, 'image/jpeg', 0.95);
+      lap('foto→jpeg');
+      await putBlob(P.photoKey, b);
+      lap(`foto gravada (${Math.round(b.size / 1024)} KB)`);
       P.saved.add(P.photoKey);
     }
     if (ph.skinModel && !P.skinKey) {
       const key = `${P.id}-pele`;
-      await putBlob(key, await canvasBlob(maskToCanvas(ph.skinModel, ph.w, ph.h), 'image/png'));
+      const b = await canvasBlob(maskToCanvas(ph.skinModel, ph.w, ph.h), 'image/png');
+      lap('pele→png');
+      await putBlob(key, b);
+      lap(`pele gravada (${Math.round(b.size / 1024)} KB)`);
       P.skinKey = key;
       P.saved.add(key);
     }
@@ -582,6 +622,7 @@ async function doSave() {
     tg.imageSmoothingQuality = 'high';
     tg.drawImage(stage, 0, 0, tc.width, tc.height);
     const thumb = await canvasBlob(tc, 'image/jpeg', 0.8);
+    lap('desenhos + miniatura');
     if (project !== P) return; // trocou de projeto no meio
     await putProject({
       id: P.id,
@@ -592,6 +633,8 @@ async function doSave() {
       state,
       blobKeys: [P.photoKey, ...(P.skinKey ? [P.skinKey] : []), ...layers.map((L) => L.id)],
     });
+    lap('registro');
+    console.info(`Projeto salvo: ${tm.join(', ')}`);
     saveStateEl.textContent = 'Salvo no aparelho';
   } catch (err) {
     console.error(err);
@@ -1466,6 +1509,13 @@ $<HTMLInputElement>('photoInput').addEventListener('change', (e) => {
   if (f) void setPhoto(f).catch(showError);
   input.value = '';
 });
+// No celular, a primeira análise da GPU demora (~9 s num aparelho de entrada). Ela é feita
+// enquanto a galeria está aberta por cima do app: a pessoa escolhendo a foto não vê a espera.
+for (const id of ['photoInput', 'extractInput']) {
+  $<HTMLInputElement>(id).addEventListener('click', () => {
+    setTimeout(() => void warmUp(), 500);
+  });
+}
 $<HTMLInputElement>('designInput').addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
   const files = [...(input.files ?? [])];

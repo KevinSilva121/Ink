@@ -145,7 +145,7 @@ async function runAnalysis(an: HTMLCanvasElement) {
     return { skin: null, pose: null };
   }
   await nextPaint();
-  const res = analyze(an);
+  const res = await analyze(an);
   return { skin: res.skin ? fillHoles(res.skin, an.width, an.height) : null, pose: res.pose };
 }
 
