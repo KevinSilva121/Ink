@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fundo da janela: aparece atrás das barras do sistema (topo e navegação). -->
+    <color name="provink_bars">#0E0F11</color>
+</resources>

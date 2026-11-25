@@ -154,6 +154,13 @@ let showFrameUntil = 0;
 const placed = (L: Layer | null): L is Layer & { pl: Placement; frame: Frame } => !!L?.pl && !!L.frame;
 const numberOf = (L: Layer) => layers.indexOf(L) + 1;
 const QUIET = /^(Escolha uma foto do corpo|Preparando a detecção do corpo)/;
+// Aviso maior que a faixa (3 linhas) cresce por cima da foto: os botões da foto descem junto,
+// senão ficavam escondidos embaixo dele.
+new ResizeObserver(() => {
+  const over = Math.max(0, statusEl.offsetHeight - (statusEl.parentElement?.offsetHeight ?? 0));
+  stageBox.style.setProperty('--st-over', `${over}px`);
+}).observe(statusEl);
+
 function setStatus(msg: string) {
   statusEl.textContent = msg;
   statusEl.classList.toggle('quiet', !msg || QUIET.test(msg));
@@ -1186,9 +1193,22 @@ function fitLayer(L: Layer, x: number, y: number, keepEdits: boolean, report = t
 }
 
 /**
+ * Durante o arrasto: em cima do membro medido, a tatuagem continua enrolada nele; com o meio
+ * fora dele, fica plana embaixo do dedo (o enrolamento colava a tatuagem na borda do membro).
+ */
+function followLimb(L: Layer & { pl: Placement; frame: Frame }) {
+  if (!photo || !L.fitted?.ok) return;
+  const { px, py } = L.pl;
+  if (L.frame.ok && containsPoint(L.frame, px, py)) return;
+  const limb = L.frame.ok ? L.frame : withEdits(L.fitted, L.edits);
+  L.frame = containsPoint(limb, px, py) ? limb : flatFrame(px, py, photo.w, photo.h, 'fora do membro');
+}
+
+/**
  * Depois de arrastar: se a tatuagem continua no mesmo membro, o formato medido continua valendo
  * (só ela andou). Se foi para outra parte do corpo, mede de novo ali. Se o meio dela caiu fora da
- * pele (fundo, roupa), não mede ali: antes isso deixava a máscara de pele vazia e a tatuagem sumia.
+ * pele mas dentro do membro (relógio, sombra), também mantém. Fora do membro, mede de novo onde
+ * ela foi solta (no fundo, fica plana e com o contorno à vista).
  */
 function settleMoved(L: Layer & { pl: Placement; frame: Frame }) {
   if (!photo) return;
@@ -1196,13 +1216,16 @@ function settleMoved(L: Layer & { pl: Placement; frame: Frame }) {
   const f = L.frame;
   const i = clamp(Math.round(py), 0, photo.h - 1) * photo.w + clamp(Math.round(px), 0, photo.w - 1);
   const t = (px - f.cx) * f.ux + (py - f.cy) * f.uy;
-  const sameLimb = f.ok && containsPoint(f, px, py) && (!!f.profile?.caps || Math.abs(t) < 3 * f.R);
+  const inside = f.ok && containsPoint(f, px, py);
+  const sameLimb = inside && (!!f.profile?.caps || Math.abs(t) < 3 * f.R);
   const offSkin = photo.skinModel ? photo.skinModel[i] < 0.35 && (!L.mask || L.mask[i] < 0.5) : false;
-  if (sameLimb || (offSkin && f.ok)) {
+  // Fora da pele mas ainda dentro do membro (relógio, sombra): o encaixe de antes continua valendo.
+  // Fora do membro, não: o meio da tatuagem ia parar na borda do membro, longe do dedo.
+  if (sameLimb || (offSkin && inside)) {
     refreshPanel();
     draw();
     if (sameLimb) describe(L);
-    else setStatus('O meio da tatuagem ficou fora da pele: mantive o encaixe no corpo de antes. Arraste de volta para cima da pele para reencaixar.');
+    else setStatus('O meio da tatuagem ficou fora da pele: mantive o encaixe de antes. Arraste de volta para a pele para reencaixar.');
     return;
   }
   fitLayer(L, px, py, true);
@@ -1237,18 +1260,19 @@ function describe(L: Layer) {
   if (f.hitBorder) parts.push('O membro sai da foto: curvatura estimada.');
   const cut = cutAt(L);
   if (cut) {
-    parts.push(`Passa ${ofJoint(cut)} e é cortada ali: "Lados" encolhe só esse lado; "Contorno" (bolinha dourada) leva além.`);
+    parts.push(`Cortada ${cutAtJoint(cut)}: "Lados" encolhe esse lado; "Contorno" leva além.`);
   } else {
     parts.push(
       layers.length > 1
-        ? 'Arraste a tatuagem para mover; dois dedos sobre ela giram e mudam o tamanho; toque em outra para editá-la.'
-        : 'Arraste a tatuagem para mover; dois dedos sobre ela giram e mudam o tamanho.',
+        ? 'Arraste para mover; dois dedos sobre ela giram e mudam o tamanho; toque em outra para editá-la.'
+        : 'Arraste para mover; dois dedos sobre ela giram e mudam o tamanho.',
     );
   }
   setStatus(parts.join(' '));
 }
 
-const ofJoint = (j: string) => (j.endsWith('s') ? `dos ${j}` : `do ${j}`);
+/** "no punho", "nos dedos". */
+const cutAtJoint = (j: string) => (j.endsWith('s') ? `nos ${j}` : `no ${j}`);
 
 /** Articulação onde a ponta do membro está cortando a tatuagem (ex.: punho), ou null. */
 function cutAt(L: Layer): string | null {
@@ -1399,10 +1423,10 @@ function setAdjustMode(on: boolean) {
   syncToolUI();
   if (adjustMode && placed(sel)) {
     const joints = sel.frame.profile?.ends ? sel.frame.profile.joints : null;
-    const msg = ['Brancas: arraste até a borda real da pele; cada bolinha acerta o seu trecho.'];
+    const msg = ['Brancas: arraste até a borda real da pele.'];
     if (joints) {
       const where = joints[0] === joints[1] ? '' : ` (${joints[0]} e ${joints[1]})`;
-      msg.push(`Douradas: onde o membro termina${where}. Arraste para a tatuagem ir além ou parar antes.`);
+      msg.push(`Douradas: onde o membro termina${where}; arraste para a tatuagem ir além ou parar antes.`);
     }
     setStatus(msg.join(' '));
   } else if (was && placed(sel)) describe(sel);
@@ -1477,16 +1501,23 @@ function dragHandle(L: Layer, h: AdjustHandle, dx: number, dy: number) {
       e.knots.sort((p, q) => p.t - q.t);
     }
     const d = dx * f.vx + dy * f.vy;
-    if (h.side === 'a') k.a += d;
-    else k.b += d;
+    // Uma borda não passa da outra: o membro fica com pelo menos ~1/5 da largura detectada
+    // (antes ficava com 1 px e a tatuagem sumia).
+    const r0 = profileAt(f, h.t)[1] || f.R;
+    const slack = 2 * (Math.max(4, 0.2 * r0) - r0);
+    if (h.side === 'a') k.a = Math.max(k.a + d, k.b + slack);
+    else k.b = Math.min(k.b + d, k.a - slack);
   } else {
     h.t += dx * f.ux + dy * f.uy;
-    // As duas pontas não podem se cruzar: sobra pelo menos um raio de membro entre elas.
+    // As duas pontas não podem se cruzar: sobra pelo menos um raio de membro entre elas. E a
+    // ponta não passa do meio da tatuagem (passando, o membro acabava antes dela e ela sumia).
     const ends = L.frame.profile?.ends;
     if (!ends) return;
-    const minLen = 2 * L.frame.R;
-    if (h.end === 1) e.tipHi = Math.max(h.t, ends[0] + minLen);
-    else e.tipLo = Math.min(h.t, ends[1] - minLen);
+    const fr = L.frame;
+    const minLen = 2 * fr.R;
+    const t0 = L.pl ? (L.pl.px - fr.cx) * fr.ux + (L.pl.py - fr.cy) * fr.uy : null;
+    if (h.end === 1) e.tipHi = Math.max(h.t, ends[0] + minLen, t0 == null ? -Infinity : t0 + 0.5 * fr.R);
+    else e.tipLo = Math.min(h.t, ends[1] - minLen, t0 == null ? Infinity : t0 - 0.5 * fr.R);
   }
   L.frame = withEdits(f, e);
 }
@@ -1517,7 +1548,7 @@ function setSideMode(on: boolean) {
   syncToolUI();
   if (sideMode) {
     setStatus(
-      'Puxe a bolinha de um lado para encolher ou esticar só aquele lado; o oposto fica parado. Ex.: puxe para dentro o lado que passa do punho.',
+      'Puxe a bolinha de um lado para encolher ou esticar só aquele lado (o oposto fica parado).',
     );
   } else if (was && placed(sel)) describe(sel);
   drawOverlay();
@@ -1546,7 +1577,11 @@ function dragSide(L: Layer & { pl: Placement; frame: Frame }, x: number, y: numb
   const aspect = L.tex.w / L.tex.h;
   const hh = s.height / 2;
   const hw = (s.height * aspect * s.stretch) / 2;
-  const minH = 0.05 * L.baseHeight;
+  // Puxando um lado além do oposto, a tatuagem para num tamanho mínimo em que ainda aparece e
+  // as bolinhas não ficam uma em cima da outra (antes encolhia a 5% e sumia).
+  const minSide = Math.max(0.1 * L.baseHeight, 3 * handleRadius());
+  const minH = Math.min(s.height, minSide);
+  const minW = Math.min(2 * hw, minSide);
   let cx = 0;
   let cy = 0;
   let height = s.height;
@@ -1565,13 +1600,13 @@ function dragSide(L: Layer & { pl: Placement; frame: Frame }, x: number, y: numb
       break;
     }
     case 'right': {
-      const right = Math.max(lx, -hw + minH);
+      const right = Math.max(lx, -hw + minW);
       width = right + hw;
       cx = (right - hw) / 2;
       break;
     }
     case 'left': {
-      const left = Math.min(lx, hw - minH);
+      const left = Math.min(lx, hw - minW);
       width = hw - left;
       cx = (hw + left) / 2;
       break;
@@ -2002,12 +2037,16 @@ function fitSelToArea() {
 
   const f = r.frame;
   const msg = [`Encaixada na área pintada${f.part ? ` (${f.part})` : ''}.`];
-  if (r.outside > 0.08) msg.push('O que foi pintado fora do corpo ficou de fora.');
+  if (r.outside > 0.08) msg.push('O que saiu do corpo foi ignorado.');
   if (r.dropped) msg.push('Havia áreas separadas: usei a maior.');
   if (r.bent) {
-    const limb = r.bent === 'joelho' || r.bent === 'tornozelo' ? 'a perna esticada' : 'o braço esticado';
-    msg.push(`O membro está dobrado no ${r.bent}: a tatuagem ficou no trecho maior. Para um fechamento inteiro, use uma foto com ${limb}.`);
-  } else msg.push('Agora é só ajustar: arraste para mover; dois dedos sobre ela giram e mudam o tamanho.');
+    const leg = r.bent === 'joelho' || r.bent === 'tornozelo';
+    msg.push(
+      leg
+        ? `Perna dobrada no ${r.bent}: ficou no trecho maior. Para fechar a perna toda, use uma foto com ela esticada.`
+        : `Braço dobrado no ${r.bent}: ficou no trecho maior. Para fechar o braço todo, use uma foto com ele esticado.`,
+    );
+  } else msg.push('Arraste para mover; dois dedos sobre ela giram e mudam o tamanho.');
   setStatus(msg.join(' '));
 
   // Várias escolhidas de uma vez: a próxima também vai para uma área.
@@ -2228,7 +2267,8 @@ interface Pt {
 }
 const pointers = new Map<number, Pt>();
 type Gesture =
-  | { k: 'tattoo' | 'place' | 'pan'; sx: number; sy: number; moved: boolean }
+  /** ox/oy: do dedo até o meio da tatuagem (na foto), para ela andar junto com o dedo. */
+  | { k: 'tattoo' | 'place' | 'pan'; sx: number; sy: number; moved: boolean; ox?: number; oy?: number }
   | { k: 'pinchT'; dist: number; ang: number }
   | { k: 'pinchV'; d0: number; mx: number; my: number; from: { z: number; x: number; y: number } }
   | { k: 'mode' }
@@ -2289,6 +2329,8 @@ stageBox.addEventListener('pointerdown', (e) => {
       tool !== 'area' &&
       placed(sel) &&
       (gesture?.k === 'tattoo' || hitTest(mid.x, mid.y, 30) === sel);
+    // Estava arrastando a tatuagem com um dedo: o lugar onde ela está vale antes do gesto novo.
+    if (gesture?.k === 'tattoo' && gesture.moved && placed(sel)) settleMoved(sel);
     cancelGesture();
     if (onTattoo) {
       gesture = { k: 'pinchT', ...twoFinger() };
@@ -2359,7 +2401,8 @@ stageBox.addEventListener('pointerdown', (e) => {
       selectLayer(hit);
       describe(hit);
     }
-    gesture = { k: 'tattoo', sx: e.clientX, sy: e.clientY, moved: false };
+    const pl = hit.pl!;
+    gesture = { k: 'tattoo', sx: e.clientX, sy: e.clientY, moved: false, ox: pl.px - p.x, oy: pl.py - p.y };
   } else gesture = startPan();
 });
 
@@ -2423,9 +2466,12 @@ stageBox.addEventListener('pointermove', (e) => {
   if (g.k === 'done' || pointers.size !== 1) return;
   if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) g.moved = true;
   if (!g.moved) return;
-  if (g.k === 'tattoo' && placed(sel)) {
-    sel.pl.px += p.x - prev.x;
-    sel.pl.py += p.y - prev.y;
+  if (g.k === 'tattoo' && placed(sel) && photo) {
+    // O meio da tatuagem fica embaixo do mesmo ponto do dedo, sem sair da foto (fora dela não
+    // daria mais para pegar a tatuagem de volta).
+    sel.pl.px = clamp(p.x + (g.ox ?? 0), 0, photo.w - 1);
+    sel.pl.py = clamp(p.y + (g.oy ?? 0), 0, photo.h - 1);
+    followLimb(sel);
     touch();
   } else if (g.k === 'pan' || g.k === 'place') {
     // Arrastar fora da tatuagem (ou antes de posicioná-la) só move a foto aproximada.
@@ -2786,7 +2832,9 @@ function drawOverlay() {
     }
   }
 
-  if (sel?.outline && (sideMode || debugIn.checked || showFrameUntil > performance.now())) {
+  // Fora da pele a tatuagem quase não aparece: o contorno fica à vista para achar e arrastar.
+  const offSkin = placed(sel) && !sel.frame.ok;
+  if (sel?.outline && (sideMode || offSkin || debugIn.checked || showFrameUntil > performance.now())) {
     octx.lineWidth = lw * (sideMode ? 1 : 0.7);
     octx.strokeStyle = sideMode ? 'rgba(255,255,255,0.95)' : 'rgba(232, 180, 95, 0.95)';
     octx.setLineDash([lw * 3, lw * 2.2]);

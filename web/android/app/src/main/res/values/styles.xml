@@ -13,9 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
-        <!-- Barras do sistema escuras, da cor do topo e do fundo do app. -->
-        <item name="android:statusBarColor">#0E0F11</item>
-        <item name="android:navigationBarColor">#121316</item>
+        <!-- Barras do sistema escuras, da cor do topo do app. O fundo da janela é o que aparece
+             atrás delas quando o Android desenha o app de ponta a ponta. -->
+        <item name="android:windowBackground">@color/provink_bars</item>
+        <item name="android:statusBarColor">@color/provink_bars</item>
+        <item name="android:navigationBarColor">@color/provink_bars</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
