@@ -930,7 +930,7 @@ let stroke: Stroke | null = null;
 function setErase(on: boolean) {
   erasing = on && !!S?.work;
   eraseBtn.setAttribute('aria-pressed', String(erasing));
-  eraseBtn.textContent = erasing ? 'Pronto' : 'Borracha';
+  eraseBtn.querySelector('span')!.textContent = erasing ? 'Pronto' : 'Borracha';
   paper.classList.toggle('erasing', erasing);
   undoBtn.hidden = !erasing;
   updateUndo();

@@ -1,12 +1,27 @@
+/* ---------- Provink: escuro, sóbrio, dourado só no que importa ---------- */
 :root {
-  --bg: #111214;
-  --panel: #1b1d21;
-  --line: #2c2f35;
-  --text: #ecebe8;
-  --muted: #a3a29e;
-  --accent: #e0b36a;
-  --accent-ink: #1a1408;
-  --focus: #f2cf8f;
+  --bg: #121316;
+  --bg-2: #0e0f11;
+  --panel: #1b1c20;
+  --panel-2: #17181b;
+  --line: #2a2c31;
+  --line-2: #4a4c52;
+  --text: #f3f3f4;
+  --text-2: #d6d7da;
+  --muted: #a6a8af;
+  --accent: #f0b15f;
+  --accent-2: #f6c37f;
+  --accent-ink: #1b1308;
+  --accent-soft: rgba(240, 177, 95, 0.1);
+  --ok: #4cc552;
+  --danger: #e5574f;
+  --focus: #f6c37f;
+  --r: 14px;
+  --r-lg: 20px;
+  --font: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --i-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.5M12 7.6h.01'/%3E%3C/svg%3E");
+  --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4 8-8.5'/%3E%3C/svg%3E");
+  --i-bang: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M12 6.5v7M12 17.5h.01'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 
@@ -19,204 +34,31 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 16px/1.45 var(--font);
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
 }
 
-.top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 6px max(16px, env(safe-area-inset-left));
-  max-width: 980px;
-  margin: 0 auto;
+[hidden] {
+  display: none !important;
 }
 
-.top h1 {
-  font-size: 1.15rem;
-  margin: 0;
-  letter-spacing: 0.01em;
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
-.tag {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-main {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left));
-}
-
-.steps {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-@media (max-width: 560px) {
-  .steps {
-    grid-template-columns: 1fr;
-  }
-}
-
-.step {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.step-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.num {
-  display: inline-grid;
-  place-items: center;
+.ic {
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.layers {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.layers:empty {
-  display: none;
-}
-
-.chip {
-  position: relative;
-}
-
-.chip-main {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  min-width: 64px;
-  border-radius: 10px;
-  border: 2px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.chip-main[aria-pressed='true'] {
-  border-color: var(--accent);
-}
-
-.chip-main canvas {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-}
-
-.chip-main .pending {
-  color: var(--accent);
-}
-
-.chip-del {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
-  font-size: 0.9rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.chip-main:focus-visible,
-.chip-del:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 16px;
-  border-radius: 10px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.btn.ghost {
-  background: transparent;
-  color: var(--text);
-  border-color: var(--line);
-}
-
-.btn:focus-visible,
-.link:focus-visible,
-input:focus-visible + *,
-input[type='range']:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.link {
-  background: none;
-  border: none;
-  padding: 4px 2px;
-  color: var(--accent);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.note {
-  margin: 8px 0 0;
-  font-size: 0.86rem;
-  color: var(--muted);
-}
-
-.note:empty {
-  display: none;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sr-only {
@@ -230,25 +72,588 @@ input[type='range']:focus-visible {
   border: 0;
 }
 
-.status {
-  margin: 14px 0 10px;
-  min-height: 1.45em;
-  color: var(--accent);
+/* Ícone "i" antes de avisos e notas (máscara: herda a cor do texto). */
+.status::before,
+.note.info::before {
+  content: '';
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  background: currentColor;
+  -webkit-mask: var(--i-info) center / contain no-repeat;
+  mask: var(--i-info) center / contain no-repeat;
+  opacity: 0.85;
+}
+
+/* ---------- Abertura ---------- */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #050505;
+  transition: opacity 0.42s ease;
+}
+
+.splash.out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* A arte cobre a tela do celular; em tela larga, fica inteira no meio. */
+.splash-art {
+  position: relative;
+  width: max(100vw, 46.15vh);
+  aspect-ratio: 852 / 1846;
+  container-type: inline-size;
+}
+
+@media (min-aspect-ratio: 3/5) {
+  .splash-art {
+    width: auto;
+    height: 100vh;
+  }
+
+  /* Bordas laterais esmaecidas: a arte se funde ao fundo preto. */
+  .splash-art > img {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+  }
+}
+
+.splash-art > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.splash-credit {
+  position: absolute;
+  left: 50%;
+  top: 87.1%;
+  display: flex;
+  align-items: center;
+  gap: 3.2cqw;
+  transform: translate(-50%, -50%);
+  color: #f4f7fb;
+  white-space: nowrap;
+}
+
+.splash-credit img {
+  width: 8.4cqw;
+  height: 8.4cqw;
+}
+
+.splash-credit span {
+  display: grid;
+  line-height: 1.15;
+}
+
+.splash-credit small {
+  font-size: 2.7cqw;
+  color: rgba(244, 247, 251, 0.62);
+}
+
+.splash-credit b {
+  font-size: 4.1cqw;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Topo ---------- */
+.top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.logo {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.top h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tag {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #34363c;
+  color: var(--text-2);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.top-acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hist {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.hist-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.hist-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.top-btn {
+  min-height: 46px;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+#save {
+  padding: 0 16px 0 14px;
+  font-weight: 700;
+}
+
+.ed-only {
+  display: none !important;
+}
+
+body.ed .ed-only:not([hidden]) {
+  display: inline-flex !important;
+}
+
+body.ed .tag {
+  display: none;
+}
+
+/* Editor: barra mais compacta (marca, voltar/avançar, projetos e salvar cabem num celular). */
+body.ed .top {
+  gap: 8px;
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+
+body.ed .brand {
+  gap: 6px;
+}
+
+body.ed .logo {
+  width: 26px;
+  height: 26px;
+}
+
+body.ed .top h1 {
+  font-size: 1.4rem;
+}
+
+body.ed .top-acts {
+  gap: 6px;
+}
+
+body.ed .hist-btn {
+  width: 38px;
+  height: 40px;
+}
+
+body.ed .hist-btn .ic,
+body.ed .top-btn .ic {
+  width: 20px;
+  height: 20px;
+}
+
+body.ed .top-btn {
+  min-height: 42px;
+}
+
+/* No editor, "Projetos" vira só o ícone. */
+body.ed #projectsBtn {
+  width: 42px;
+  padding: 0;
+  background: var(--panel-2);
+}
+
+body.ed #save {
+  gap: 6px;
+  padding: 0 12px 0 10px;
   font-size: 0.95rem;
+}
+
+body.ed .top-label {
+  display: none;
+}
+
+@media (max-width: 370px) {
+  body.ed .top h1 {
+    font-size: 1.2rem;
+  }
+
+  body.ed .hist-btn {
+    width: 34px;
+  }
+
+  body.ed #save span {
+    display: none;
+  }
+
+  body.ed #save {
+    width: 42px;
+    padding: 0;
+  }
+}
+
+/* ---------- Botões ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line-2);
+}
+
+.btn.btn-gold {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn.btn-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 75%, transparent);
+}
+
+.btn-lg {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 16px;
+  font-size: 1.08rem;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link:disabled {
+  opacity: 0.4;
+}
+
+.btn:focus-visible,
+.link:focus-visible,
+.hist-btn:focus-visible,
+.tool:focus-visible,
+.fab:focus-visible,
+.tile:focus-visible,
+.x-close:focus-visible,
+.chip-main:focus-visible,
+.chip-del:focus-visible,
+.step-btn:focus-visible,
+input[type='range']:focus-visible,
+.switches input:focus-visible,
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.note:empty {
+  display: none;
+}
+
+.note.center {
+  text-align: center;
+}
+
+.note.info {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* ---------- Tela inicial ---------- */
+main {
+  display: flex;
+  flex-direction: column;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+}
+
+.hero h2 {
+  margin: 28px 0 12px;
+  font-size: clamp(1.9rem, 8.4vw, 2.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.hero p {
+  margin: 0 0 22px;
+  font-size: 1.06rem;
+  color: var(--muted);
+}
+
+.hero b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.step {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 4px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.num {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.num.ring {
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.hint {
+  display: flex;
+  gap: 10px;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.hint b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.try {
+  margin: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  text-align: center;
+}
+
+.try .link {
+  text-decoration: none;
+}
+
+footer {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 18px max(20px, env(safe-area-inset-right)) max(28px, calc(env(safe-area-inset-bottom) + 12px)) max(20px, env(safe-area-inset-left));
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+footer .ic {
+  width: 26px;
+  height: 26px;
+}
+
+/* Aviso: na tela inicial, só os importantes (erros, "preparando..."), em cima. */
+.status {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.status:empty {
+  display: none;
+}
+
+body:not(.ed) .status-bar {
+  order: -1;
+}
+
+body:not(.ed) #status {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+body:not(.ed) #status.quiet {
+  display: none;
+}
+
+.empty {
+  display: none;
+}
+
+/* ---------- Editor: foto de ponta a ponta, ferramentas embaixo ---------- */
+body.ed {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body.ed footer {
+  display: none;
+}
+
+body.ed main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+/* Faixa do aviso com altura fixa (três linhas): a foto não muda de tamanho a cada aviso novo.
+   Aviso mais longo cresce por cima da foto. */
+body.ed .status-bar {
+  position: relative;
+  z-index: 6;
+  flex: none;
+  height: 70px;
+}
+
+body.ed #status {
+  position: absolute;
+  inset: 0 0 auto;
+  min-height: 100%;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.84rem;
+  line-height: 1.32;
+  pointer-events: none;
+}
+
+body.ed #status:empty {
+  display: flex;
+}
+
+body.ed #status::before {
+  width: 19px;
+  height: 19px;
+  margin-top: 0;
 }
 
 .stage-wrap {
   position: relative;
 }
 
-/* A foto ocupa todo o espaço livre; o tamanho e o zoom são calculados em main.ts
-   (encaixe na caixa + aproximar com dois dedos). */
+body.ed .stage-wrap {
+  flex: 1;
+  min-height: 140px;
+}
+
+/* O tamanho e o zoom da foto são calculados em main.ts (encaixe + dois dedos). */
 .stage-box {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 12px;
-  background: #000;
+  background: #0a0a0b;
   touch-action: none;
 }
 
@@ -273,134 +678,34 @@ input[type='range']:focus-visible {
   pointer-events: none;
 }
 
-/* ---------- Editor (com a foto aberta): tela cheia, foto sempre à vista ---------- */
-.ic {
-  width: 22px;
-  height: 22px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.ed-only {
-  display: none !important;
-}
-
-body.ed .ed-only:not([hidden]) {
-  display: inline-flex !important;
-}
-
-body.ed {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-body.ed footer,
-body.ed .tag {
-  display: none;
-}
-
-body.ed .top {
-  width: 100%;
-  padding-bottom: 4px;
-}
-
-body.ed main {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
-}
-
-body.ed .status {
-  margin: 2px 0 6px;
-  font-size: 0.86rem;
-  line-height: 1.35;
-}
-
-body.ed .stage-wrap {
-  flex: 1;
-  min-height: 140px;
-}
-
-.top-acts {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.icon-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.icon-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.icon-btn:focus-visible,
-.tool:focus-visible,
-.fab:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.top-btn {
-  gap: 6px;
-  padding: 0 12px;
-}
-
-@media (max-width: 440px) {
-  body.ed .top-label {
-    display: none;
-  }
-
-  body.ed #projectsBtn {
-    width: 40px;
-    padding: 0;
-  }
-}
-
 /* Botões sobre a foto: travar a edição, ver sem a tatuagem, voltar ao enquadramento. */
 .fabs {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 12px;
+  right: 12px;
   z-index: 3;
-  display: grid;
-  gap: 8px;
+  display: flex;
+  gap: 10px;
 }
 
 .fab {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 50px;
+  height: 50px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(17, 18, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(26, 26, 29, 0.82);
   color: #fff;
   cursor: pointer;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.fab .ic {
+  width: 24px;
+  height: 24px;
 }
 
 .fab[aria-pressed='true'] {
@@ -421,58 +726,121 @@ body.ed .stage-wrap {
 .fab-fit {
   position: absolute;
   left: 50%;
-  bottom: 10px;
+  bottom: 12px;
   z-index: 3;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: auto;
-  height: 40px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 16px;
   border-radius: 999px;
   transform: translateX(-50%);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .save-state {
   position: absolute;
-  left: 8px;
-  top: 8px;
+  left: 12px;
+  top: 12px;
   z-index: 2;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 6px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 0.72rem;
+  background: rgba(46, 46, 50, 0.86);
+  color: #f2f2f2;
+  font-size: 0.86rem;
+  font-weight: 500;
   pointer-events: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.save-state::before {
+  content: '';
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ok);
+  -webkit-mask: var(--i-check) center / 15px no-repeat, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: var(--i-check) center / 15px no-repeat exclude, linear-gradient(#000 0 0);
+}
+
+.save-state[data-state='busy']::before {
+  background: var(--accent);
+  -webkit-mask: none;
+  mask: none;
+  transform: scale(0.55);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+.save-state[data-state='err']::before {
+  background: var(--danger);
+  -webkit-mask: var(--i-bang) center / 15px no-repeat, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: var(--i-bang) center / 15px no-repeat exclude, linear-gradient(#000 0 0);
+}
+
+@keyframes pulse {
+  to {
+    opacity: 0.35;
+  }
 }
 
 .save-state:empty {
   display: none;
 }
 
-/* Parte de baixo: tatuagens, painel da ferramenta escolhida e barra de ferramentas. */
+/* ---------- Parte de baixo: tatuagens, painel da ferramenta e barra ---------- */
 .dock {
+  position: relative;
   display: grid;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 10px;
+  padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: var(--bg);
+}
+
+/* Nos modos de puxar bolinhas, na borracha e no "Mais", a faixa de tatuagens sai para dar espaço. */
+.dock[data-tool='sides'] .layer-strip,
+.dock[data-tool='adjust'] .layer-strip,
+.dock[data-tool='erase'] .layer-strip,
+.dock[data-tool='more'] .layer-strip,
+.dock.no-layers[data-tool='area'] .layer-strip {
+  display: none;
 }
 
 .layer-strip {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+.layers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.layers:empty {
+  display: none;
 }
 
 .layer-strip .layers {
   flex: 1;
   min-width: 0;
-  margin: 0;
-  padding: 9px 9px 2px 2px;
   flex-wrap: nowrap;
   overflow-x: auto;
+  padding: 10px 10px 2px 2px;
   scrollbar-width: none;
 }
 
@@ -480,97 +848,211 @@ body.ed .stage-wrap {
   display: block;
 }
 
-.layer-strip .chip-main {
-  flex-direction: row;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 8px 3px 3px;
+.chip {
+  position: relative;
+  flex: none;
 }
 
-.layer-strip .chip-main canvas {
-  width: 40px;
-  height: 40px;
+.chip-main {
+  position: relative;
+  display: block;
+  width: 66px;
+  height: 66px;
+  padding: 0;
+  border-radius: var(--r);
+  border: 2px solid transparent;
+  background: #e8e6e4;
+  overflow: hidden;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip.on .chip-main,
+.chip-main[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
+.chip-main canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.chip-num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(10, 10, 12, 0.82);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.chip-main .pending {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  padding: 1px 2px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.chip-del {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: #1c1d21;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.chip-del .ic {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+}
+
+/* O "×" só aparece na tatuagem selecionada (e nunca com a edição travada). */
+.chip:not(.on) .chip-del,
+body.locked .chip-del {
+  display: none;
 }
 
 .add-wrap {
-  position: relative;
   flex: none;
   margin-left: auto;
 }
 
 .add-btn {
-  gap: 4px;
-  min-height: 44px;
-  padding: 0 14px 0 10px;
+  min-height: 52px;
+  padding: 0 20px 0 16px;
+  font-size: 1.02rem;
 }
 
 .add-menu {
   position: absolute;
-  right: 0;
+  right: 10px;
   bottom: calc(100% + 8px);
   z-index: 20;
   display: grid;
-  gap: 8px;
-  width: min(260px, calc(100vw - 32px));
-  padding: 12px;
+  gap: 10px;
+  width: min(300px, calc(100vw - 20px));
+  padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--panel);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
 }
 
-.add-menu .note {
-  margin: 0;
+.add-menu .btn {
+  justify-content: flex-start;
 }
 
 .tool-panel {
-  max-height: 36vh;
+  max-height: 44vh;
   overflow-y: auto;
-  padding: 10px 12px;
+  padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--panel);
 }
 
 .tp {
   display: grid;
+  gap: 14px;
+}
+
+/* "Mais" é uma folha que sobe: alça no topo. */
+.tp-sheet::before {
+  content: '';
+  justify-self: center;
+  width: 44px;
+  height: 5px;
+  margin: -6px 0 -2px;
+  border-radius: 999px;
+  background: #56585e;
+}
+
+/* Os dois botões do painel lado a lado, mesmo num celular estreito. */
+.tp .actions {
+  flex-wrap: nowrap;
   gap: 10px;
 }
 
-.tp .toggles {
-  gap: 0 14px;
+.tp .actions .btn {
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 10px;
+  gap: 8px;
+  font-size: 0.98rem;
+  white-space: nowrap;
 }
 
-.tp .actions .btn {
-  flex: 1 1 auto;
-  min-height: 40px;
-  padding: 0 8px;
-  font-size: 0.85rem;
-  white-space: nowrap;
+.tp .actions.tiles-3 .btn {
+  white-space: normal;
 }
 
 .tp .note {
   margin: 0;
 }
 
-.tp-text {
+/* Modos (contorno, lados, borracha): a dica e um botão grande para terminar. */
+.tp-mode {
+  text-align: center;
+}
+
+.tp-mode p {
   margin: 0;
-  font-size: 0.88rem;
-  color: var(--muted);
+  font-size: 1.02rem;
+  color: var(--text);
+}
+
+.tp-mode .btn {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.1rem;
 }
 
 .area-legend {
   display: flex;
   flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+
+.area-legend > span {
+  display: inline-flex;
   align-items: center;
-  gap: 4px 6px;
-  font-size: 0.82rem;
+  gap: 8px;
 }
 
 .sw {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
 }
 
 .sw-in {
@@ -578,109 +1060,803 @@ body.ed .stage-wrap {
 }
 
 .sw-out {
-  margin-left: 8px;
-  background: repeating-linear-gradient(45deg, rgb(239, 68, 68) 0 3px, rgba(239, 68, 68, 0.3) 3px 6px);
+  background: repeating-linear-gradient(45deg, rgb(239, 68, 68) 0 4px, rgba(239, 68, 68, 0.3) 4px 8px);
 }
 
-/* Rótulo, controle e valor numa linha só (o painel da área precisa caber sem esconder a foto). */
-.slider.slider-row {
-  grid-template-columns: auto 1fr auto;
+.tp .actions .area-go {
+  flex: 1.5 1 0;
+}
+
+.area-links {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.area-links .sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line-2);
+}
+
+.area-links .sep:has(+ [hidden]) {
+  display: none;
+}
+
+/* Barra de ferramentas: as 8 dividem a largura (cabem num celular de 360 px). */
+.toolbar {
+  display: flex;
+  padding: 4px 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.tool {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0 10px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: clamp(0.54rem, 2.36vw, 0.8rem);
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tool .ic {
+  width: 24px;
+  height: 24px;
+}
+
+.tool[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.tool[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: -3px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.tool:disabled {
+  opacity: 0.36;
+  cursor: default;
+}
+
+/* ---------- Controles ---------- */
+.slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.slider label {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.slider output {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.slider input {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Rótulo, controle e valor numa linha só. */
+.slider.slider-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
 }
 
 .slider.slider-row input {
   grid-column: auto;
 }
 
-.tp .actions .area-go {
-  flex: 2 1 auto;
+.slider.slider-row output {
+  min-width: 3.4em;
 }
 
-.area-links {
+/* Cobertura: rótulo e valor em cima; 0% e máximo nas pontas. */
+.slider.slider-ends {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.slider-ends label {
+  grid-column: 1 / 3;
+}
+
+.slider-ends input {
+  grid-column: auto;
+}
+
+.slider-ends .end {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* Opções lado a lado (pílulas): a marcada fica com a borda dourada. */
+.segmented {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-.area-links .link:disabled {
-  opacity: 0.4;
-}
-
-.tp-mode {
-  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.tp-mode p {
-  flex: 1;
-  margin: 0;
-  font-size: 0.88rem;
-  color: var(--muted);
-}
-
-.tp-mode .btn {
-  flex: none;
-}
-
-.toolbar {
-  display: flex;
-  gap: 0;
-}
-
-/* As 8 ferramentas dividem a largura (cabem num celular de 360 px sem rolar). */
-.tool {
-  letter-spacing: -0.01em;
+.segmented label {
+  position: relative;
   flex: 1 1 0;
-  min-width: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 6px 0 5px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: clamp(0.56rem, 2.55vw, 0.78rem);
-  white-space: nowrap;
+  justify-content: center;
+  min-height: 48px;
+  padding: 6px 12px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
   cursor: pointer;
 }
 
-.tool[aria-pressed='true'] {
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.segmented label:has(input:disabled) {
+  opacity: 0.4;
+}
+
+.seg-label {
+  flex: none;
+  font-weight: 600;
+}
+
+.seg-stack .seg-label {
+  flex-basis: 100%;
+}
+
+/* Interruptores em linhas (texto à esquerda, chave à direita). */
+.switches {
+  display: grid;
+}
+
+.switches label {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  border-bottom: 1px solid var(--line);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.switches label:last-child {
+  border-bottom: none;
+}
+
+.switches input {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 30px;
+  margin: 0;
+  border-radius: 999px;
+  background: #45464b;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.switches input::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s;
+}
+
+.switches input:checked {
   background: var(--accent);
-  color: var(--accent-ink);
 }
 
-.tool:disabled {
-  opacity: 0.35;
-  cursor: default;
+.switches input:checked::before {
+  transform: translateX(22px);
 }
 
-body.locked .chip-del {
+.switches input:disabled {
+  opacity: 0.4;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.actions .btn {
+  flex: 1 1 0;
+  min-width: max-content;
+}
+
+/* Três botões com ícone e texto em duas linhas ("Mais"). */
+.tiles-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tiles-3 .btn {
+  min-width: 0;
+  min-height: 58px;
+  padding: 6px 10px;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.card {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 8px;
+}
+
+/* ---------- Telas por cima (extrair, projetos, decalque) ---------- */
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0 auto;
+  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(16px, env(safe-area-inset-left));
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.sheet::backdrop {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+@media (min-width: 600px) and (min-height: 700px) {
+  .sheet {
+    height: auto;
+    max-height: calc(100dvh - 48px);
+    margin: 24px auto;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+  }
+}
+
+.x-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  margin-bottom: 8px;
+}
+
+.x-head h2 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.x-head.center h2 {
+  flex: 1;
+  padding-left: 44px;
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+.x-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.x-close .ic {
+  width: 28px;
+  height: 28px;
+}
+
+.status-box {
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.status-box:has(.status:empty) {
   display: none;
 }
 
-/* Tela larga (computador, tablet deitado): ferramentas numa coluna ao lado da foto. */
+.x-box {
+  display: grid;
+  place-items: center;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: #000;
+}
+
+.x-box canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 62vh;
+  touch-action: none;
+}
+
+/* Foto de ponta a ponta dentro da tela de extrair. */
+.x-box.bleed {
+  margin: 0 calc(-1 * max(16px, env(safe-area-inset-left)));
+  border-radius: 0;
+}
+
+#xPhoto {
+  cursor: crosshair;
+}
+
+.x-draw {
+  position: relative;
+}
+
+.x-cut {
+  margin: 12px 0;
+  flex-wrap: nowrap;
+}
+
+.x-cut label {
+  min-height: 44px;
+  padding: 6px 8px;
+  font-size: 0.86rem;
+}
+
+.x-cut label:first-of-type {
+  flex-grow: 1.5;
+}
+
+.seg-stack label {
+  padding: 6px;
+  font-size: 0.9rem;
+}
+
+/* Lupa: mostra ampliado o que está embaixo do dedo enquanto se desenha o contorno. */
+.x-box canvas.x-loupe {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 132px;
+  height: 132px;
+  max-width: none;
+  max-height: none;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.x-box canvas.x-loupe.right {
+  left: auto;
+  right: 10px;
+}
+
+.x-confirm {
+  margin-top: 14px;
+}
+
+.x-confirm .btn {
+  min-height: 56px;
+}
+
+#xPick + #xResult,
+#xResult {
+  margin-top: 12px;
+}
+
+#xResult .seg-stack {
+  margin-top: 16px;
+}
+
+/* O desenho extraído fica sobre papel branco, como o arquivo que vai ser salvo. */
+.x-paper {
+  background: #fff;
+  padding: 10px;
+  border-radius: 18px;
+}
+
+.x-paper canvas {
+  max-height: 52vh;
+}
+
+.x-paper.erasing canvas {
+  cursor: cell;
+}
+
+.card.sliders {
+  padding: 2px 16px;
+}
+
+.card.sliders .slider {
+  min-height: 58px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card.sliders .slider:last-child {
+  border-bottom: none;
+}
+
+.card.sliders label {
+  font-size: 0.95rem;
+}
+
+.card.switches {
+  padding: 0 16px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 84px;
+  padding: 10px 6px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.tile .ic {
+  width: 26px;
+  height: 26px;
+}
+
+.tile[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tile:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Botão principal grudado embaixo nas telas longas. */
+.sticky-cta {
+  position: sticky;
+  bottom: calc(-1 * max(16px, calc(env(safe-area-inset-bottom) + 8px)));
+  z-index: 2;
+  margin: 14px 0 0;
+  padding: 12px 0 max(16px, calc(env(safe-area-inset-bottom) + 8px));
+  background: linear-gradient(rgba(18, 19, 22, 0), var(--bg) 28%);
+}
+
+.sticky-cta .btn {
+  min-height: 58px;
+  font-size: 1.12rem;
+  font-weight: 700;
+}
+
+.sheet > .note {
+  margin-top: 14px;
+}
+
+/* ---------- Meus projetos ---------- */
+.proj-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.proj {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.proj img {
+  width: 96px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #000;
+}
+
+.proj-info {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.proj-name {
+  position: relative;
+  display: block;
+}
+
+.proj-name input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 42px 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.proj-name input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.proj-name .ic {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.proj-info .note {
+  font-size: 0.88rem;
+}
+
+.proj-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.proj-open::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.proj-acts {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+
+.proj-acts .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.proj-acts .btn .ic {
+  width: 18px;
+  height: 18px;
+}
+
+/* ---------- Gerar decalque ---------- */
+.d-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 14px;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.d-measure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+@media (max-width: 359px) {
+  .d-measure {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A foto da medida rola a página quando o dedo não está numa marca (ver decal.ts). */
+.x-box #dPhoto {
+  cursor: grab;
+  touch-action: pan-y pinch-zoom;
+  max-height: 42vh;
+}
+
+.d-field {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+}
+
+.d-field label {
+  justify-self: stretch;
+  color: var(--text-2);
+  font-size: 0.98rem;
+}
+
+.d-field b {
+  color: var(--text);
+}
+
+.d-stepper {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  width: 100%;
+  min-height: 60px;
+  border: 1.5px solid var(--line-2);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.step-btn {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.d-stepper input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-left: 1px solid var(--line-2);
+  border-right: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.6rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.d-stepper input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.d-unit {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.card > .note {
+  margin-top: 12px;
+}
+
+.d-warn {
+  color: #f2a65a;
+}
+
+.seg-fill {
+  margin-bottom: 4px;
+}
+
+.seg-fill label {
+  min-height: 60px;
+  font-size: 0.92rem;
+}
+
+.d-size {
+  margin: -4px 0 12px;
+  color: var(--text-2);
+}
+
+#dPreview {
+  max-height: none;
+  max-width: 100%;
+}
+
+#dStatus {
+  margin-top: 12px;
+}
+
+/* ---------- Tela larga (computador, tablet deitado): ferramentas ao lado da foto ---------- */
 @media (min-width: 900px) {
-  body.ed .top {
-    max-width: 1400px;
-  }
-
   body.ed main {
-    max-width: 1400px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 360px;
     grid-template-rows: auto minmax(0, 1fr);
-    column-gap: 16px;
   }
 
-  body.ed #status {
+  body.ed .status-bar {
     grid-column: 1 / -1;
   }
 
@@ -694,18 +1870,15 @@ body.locked .chip-del {
     grid-row: 2;
     align-content: start;
     overflow-y: auto;
-    padding-top: 0;
+    padding: 14px;
+    border-left: 1px solid var(--line);
   }
 
   body.ed .toolbar {
-    order: 1;
+    order: -1;
     flex-wrap: wrap;
     gap: 6px;
-  }
-
-  body.ed .tool-panel {
-    order: 2;
-    max-height: none;
+    padding: 6px;
   }
 
   body.ed .tool {
@@ -714,402 +1887,25 @@ body.locked .chip-del {
     justify-content: flex-start;
     gap: 10px;
     padding: 10px 12px;
-    border: 1px solid var(--line);
-    font-size: 0.9rem;
+    font-size: 0.92rem;
+  }
+
+  body.ed .tool[aria-pressed='true'] {
+    background: var(--accent-soft);
+  }
+
+  body.ed .tool[aria-pressed='true']::after {
+    display: none;
+  }
+
+  body.ed .tool-panel {
+    max-height: none;
   }
 
   body.ed .add-menu {
+    top: 64px;
     bottom: auto;
-    top: calc(100% + 8px);
   }
-}
-
-.empty {
-  display: grid;
-  place-items: center;
-  min-height: 220px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  color: var(--muted);
-  text-align: center;
-  padding: 16px;
-}
-
-.controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px 18px;
-  margin-top: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-}
-
-@media (max-width: 560px) {
-  .controls {
-    grid-template-columns: 1fr;
-  }
-}
-
-.slider {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 8px;
-}
-
-.slider label {
-  font-size: 0.9rem;
-}
-
-.slider output {
-  font-size: 0.85rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.slider input {
-  grid-column: 1 / -1;
-  width: 100%;
-  accent-color: var(--accent);
-  min-height: 28px;
-}
-
-.segmented {
-  border: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.segmented legend {
-  font-size: 0.9rem;
-  margin-bottom: 6px;
-  padding: 0;
-}
-
-.segmented label,
-.toggles label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.segmented input,
-.toggles input {
-  accent-color: var(--accent);
-  width: 18px;
-  height: 18px;
-}
-
-.toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  align-items: center;
-}
-
-.actions {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.actions .btn {
-  flex: 1 1 140px;
-}
-
-.top-btn {
-  min-height: 40px;
-}
-
-/* ---------- Meus projetos ---------- */
-.proj-list {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.proj {
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 8px 12px;
-  align-items: center;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-}
-
-.proj img {
-  width: 96px;
-  height: 96px;
-  object-fit: cover;
-  border-radius: 8px;
-  background: #000;
-}
-
-.proj-info {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.proj-info input {
-  min-height: 40px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-  width: 100%;
-}
-
-.proj-info input:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.proj-info .note {
-  margin: 0;
-}
-
-.proj-acts {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.proj-acts .btn {
-  flex: 1 1 110px;
-  min-height: 40px;
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.btn-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* ---------- Extrair de uma foto ---------- */
-.extractor {
-  width: 100%;
-  max-width: 980px;
-  max-height: 100dvh;
-  margin: 0 auto;
-  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, calc(env(safe-area-inset-bottom) + 12px)) max(16px, env(safe-area-inset-left));
-  border: none;
-  background: var(--bg);
-  color: var(--text);
-  overflow-y: auto;
-}
-
-.extractor::backdrop {
-  background: rgba(0, 0, 0, 0.75);
-}
-
-@media (max-width: 560px) {
-  .extractor {
-    height: 100dvh;
-    max-width: 100%;
-  }
-}
-
-.x-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.x-head h2 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.x-close {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
-  font-size: 1.3rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.x-close:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.x-box {
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
-}
-
-.x-box canvas {
-  display: block;
-  max-width: 100%;
-  max-height: 62vh;
-  touch-action: none;
-}
-
-#xPhoto {
-  cursor: crosshair;
-}
-
-.x-draw {
-  position: relative;
-}
-
-/* Lupa: mostra ampliado o que está embaixo do dedo enquanto se desenha o contorno. */
-.x-box canvas.x-loupe {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 132px;
-  height: 132px;
-  max-width: none;
-  max-height: none;
-  border-radius: 50%;
-  border: 3px solid #fff;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-  pointer-events: none;
-}
-
-.x-box canvas.x-loupe.right {
-  left: auto;
-  right: 8px;
-}
-
-.x-loupe[hidden] {
-  display: none;
-}
-
-.x-confirm {
-  margin-top: 10px;
-}
-
-.x-cut {
-  margin: 0 0 10px;
-}
-
-/* ---------- Gerar decalque ---------- */
-.d-step {
-  margin: 18px 0 4px;
-  font-size: 1rem;
-}
-
-/* A foto da medida rola a página quando o dedo não está numa marca (ver decal.ts). */
-.x-box #dPhoto {
-  cursor: grab;
-  touch-action: pan-y pinch-zoom;
-  max-height: 42vh;
-}
-
-.d-stepper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.d-stepper .btn {
-  min-width: 48px;
-  padding: 0;
-  font-size: 1.4rem;
-}
-
-.d-unit {
-  color: var(--muted);
-}
-
-#dPreview {
-  max-height: none;
-  max-width: 100%;
-}
-
-.d-field {
-  display: grid;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.d-field label {
-  font-size: 0.9rem;
-}
-
-.d-field input {
-  width: 120px;
-  text-align: center;
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-size: 1.05rem;
-}
-
-.d-field input:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.d-warn {
-  color: #f2a65a;
-}
-
-.d-actions {
-  margin-top: 10px;
-}
-
-/* O desenho extraído fica sobre papel branco, como o arquivo que vai ser salvo. */
-.x-paper {
-  background: #fff;
-  padding: 8px;
-}
-
-.x-paper canvas {
-  max-height: 52vh;
-}
-
-.x-paper.erasing canvas {
-  cursor: cell;
-}
-
-footer {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 max(16px, env(safe-area-inset-right)) max(28px, calc(env(safe-area-inset-bottom) + 12px)) max(16px, env(safe-area-inset-left));
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-[hidden] {
-  display: none !important;
 }
 
 /* No celular: toques rápidos não dão zoom na página, e o texto da interface não fica selecionável. */
@@ -1123,10 +1919,12 @@ canvas {
 }
 
 .top,
-.steps,
+.home,
 .actions,
 .dock,
-.fabs {
+.fabs,
+.tiles,
+.splash {
   -webkit-user-select: none;
   user-select: none;
 }

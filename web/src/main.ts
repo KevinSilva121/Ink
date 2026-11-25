@@ -1,3 +1,4 @@
+import '@fontsource-variable/inter/wght.css';
 import './style.css';
 import { analyze, loadModels, type Landmark } from './vision';
 import { colorSkinMask, computeHighlight } from './photo';
@@ -35,6 +36,40 @@ import {
 import { blobToDataUrl, isNative, onBackButton, saveFile } from './platform';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// ---------- Abertura ----------
+// Fica pelo menos 1,5 s à vista e some suave quando o app terminou de carregar; um toque pula.
+// O tempo conta de quando a arte chegou (no celular, a página leva segundos para abrir e, contando
+// do início, a abertura sumia quase sem aparecer). Enquanto isso, os modelos carregam por baixo.
+{
+  const splash = $('splash');
+  const art = splash.querySelector('img')!;
+  let gone = false;
+  const hide = () => {
+    if (gone) return;
+    gone = true;
+    splash.classList.add('out');
+    setTimeout(() => splash.remove(), 450);
+  };
+  const artAt = () => {
+    const e = performance.getEntriesByName(art.currentSrc)[0] as PerformanceResourceTiming | undefined;
+    return e?.responseEnd || performance.now();
+  };
+  const shown = new Promise<number>((res) => {
+    if (art.complete) res(artAt());
+    else {
+      art.addEventListener('load', () => res(performance.now()), { once: true });
+      art.addEventListener('error', () => res(0), { once: true });
+    }
+  });
+  const loaded = new Promise<void>((res) => {
+    if (document.readyState === 'complete') res();
+    else window.addEventListener('load', () => res(), { once: true });
+  });
+  void Promise.all([shown, loaded]).then(([t]) => setTimeout(hide, Math.max(0, t + 1500 - performance.now())));
+  splash.addEventListener('pointerdown', hide);
+  setTimeout(hide, 6000); // nunca fica presa
+}
 
 const stage = $<HTMLCanvasElement>('stage');
 const overlay = $<HTMLCanvasElement>('overlay');
@@ -118,7 +153,13 @@ let showFrameUntil = 0;
 
 const placed = (L: Layer | null): L is Layer & { pl: Placement; frame: Frame } => !!L?.pl && !!L.frame;
 const numberOf = (L: Layer) => layers.indexOf(L) + 1;
-const setStatus = (msg: string) => (statusEl.textContent = msg);
+const QUIET = /^(Escolha uma foto do corpo|Preparando a detecção do corpo)/;
+function setStatus(msg: string) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('quiet', !msg || QUIET.test(msg));
+}
+/** Ícone do conjunto da página (index.html, <symbol id="i-...">). */
+const icon = (name: string) => `<svg class="ic" aria-hidden="true"><use href="#i-${name}" /></svg>`;
 const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 const invalidateBase = () => (baseCache = null);
 
@@ -439,6 +480,7 @@ function resetHistory() {
 
 function updateHistoryButtons() {
   undoBtn.disabled = locked || historyAt <= 0;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-undo]')) b.disabled = undoBtn.disabled;
   redoBtn.disabled = locked || historyAt >= history.length - 1;
 }
 
@@ -548,6 +590,11 @@ let saving: Promise<void> | null = null;
 /** Enquanto um projeto está sendo aberto, nada é salvo (o estado ainda está pela metade). */
 let loadingProject = false;
 const saveStateEl = $('saveState');
+/** Selo sobre a foto: o ícone (no CSS) muda com o estado. */
+function setSaveState(text: string, state: '' | 'busy' | 'ok' | 'err') {
+  saveStateEl.textContent = text;
+  saveStateEl.dataset.state = state;
+}
 
 const defaultName = () =>
   `Projeto de ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
@@ -603,7 +650,7 @@ async function blobToMask(b: Blob, w: number, h: number): Promise<Float32Array> 
 function scheduleSave() {
   if (!photo || loadingProject) return;
   clearTimeout(saveTimer);
-  saveStateEl.textContent = 'Salvando…';
+  setSaveState('Salvando…', 'busy');
   saveTimer = window.setTimeout(() => {
     saveTimer = 0;
     void saveNow();
@@ -700,10 +747,10 @@ async function doSave() {
     });
     lap('registro');
     console.info(`Projeto salvo: ${tm.join(', ')}`);
-    saveStateEl.textContent = 'Salvo no aparelho';
+    setSaveState('Salvo no aparelho', 'ok');
   } catch (err) {
     console.error(err);
-    saveStateEl.textContent = 'Não consegui salvar';
+    setSaveState('Não consegui salvar', 'err');
   }
 }
 
@@ -722,7 +769,7 @@ function newProject() {
   historyAt = -1;
   invalidateBase();
   setEditorMode(false);
-  saveStateEl.textContent = '';
+  setSaveState('', '');
   refreshPanel();
   updateHistoryButtons();
   hint();
@@ -795,7 +842,7 @@ async function openProject(id: string) {
     history = [];
     historyAt = -1;
     commit();
-    saveStateEl.textContent = 'Salvo no aparelho';
+    setSaveState('Salvo no aparelho', 'ok');
   } finally {
     loadingProject = false;
   }
@@ -867,6 +914,8 @@ async function renderProjects() {
       }
       const info = document.createElement('div');
       info.className = 'proj-info';
+      const nameBox = document.createElement('label');
+      nameBox.className = 'proj-name';
       const name = document.createElement('input');
       name.type = 'text';
       name.value = p.name;
@@ -881,28 +930,37 @@ async function renderProjects() {
       const when = document.createElement('span');
       when.className = 'note';
       const n = (p.state as SavedState).layers?.length ?? 0;
-      when.textContent = `${n} tatuage${n === 1 ? 'm' : 'ns'} · editado em ${new Date(p.updated).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}${project?.id === p.id ? ' · aberto agora' : ''}`;
-      info.append(name, when);
+      when.textContent = `${n} tatuage${n === 1 ? 'm' : 'ns'} · editado em ${new Date(p.updated).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`;
+      nameBox.append(name);
+      nameBox.insertAdjacentHTML('beforeend', icon('pencil'));
+      info.append(nameBox, when);
+      if (project?.id === p.id) {
+        const open = document.createElement('span');
+        open.className = 'proj-open';
+        open.textContent = 'aberto agora';
+        info.append(open);
+      }
       const acts = document.createElement('div');
       acts.className = 'proj-acts';
-      const mk = (label: string, cls: string, fn: () => void) => {
+      const mk = (label: string, cls: string, ic: string, fn: () => void) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = cls;
-        b.textContent = label;
+        b.innerHTML = icon(ic);
+        b.append(label);
         b.addEventListener('click', fn);
         return b;
       };
       acts.append(
-        mk('Abrir', 'btn', () => {
+        mk('Abrir', 'btn ghost btn-gold', 'folder-open', () => {
           projDlg.close();
           void openProject(p.id).catch((err) => {
             console.error(err);
             setStatus('Não consegui abrir esse projeto.');
           });
         }),
-        mk(isNative ? 'Salvar arquivo' : 'Baixar arquivo', 'btn ghost', () => void exportProject(p.id)),
-        mk('Excluir', 'btn ghost', async () => {
+        mk(isNative ? 'Salvar arquivo' : 'Baixar arquivo', 'btn ghost', 'download', () => void exportProject(p.id)),
+        mk('Excluir', 'btn ghost btn-danger', 'trash', async () => {
           if (!confirm(`Excluir "${p.name}"? Isso não tem volta.`)) return;
           await deleteProject(p.id);
           if (project?.id === p.id) project = null;
@@ -948,7 +1006,7 @@ document.addEventListener('visibilitychange', () => {
 if (isNative) {
   $('pNote').textContent =
     'Cada projeto (foto, tatuagens e todos os ajustes) é salvo sozinho a cada edição, dentro do app. Para guardar uma cópia ou passar para outro aparelho, use "Salvar arquivo" e depois "Abrir arquivo de projeto".';
-  $('dPdf').textContent = 'Salvar PDF (tamanho real)';
+  $('dPdf').querySelector('span')!.textContent = 'Salvar PDF (tamanho real)';
 }
 
 // Botão "voltar" do Android: fecha a tela aberta ou o modo de edição, nessa ordem.
@@ -1025,7 +1083,7 @@ function refreshPanel() {
   layerList.replaceChildren(
     ...layers.map((L, i) => {
       const li = document.createElement('li');
-      li.className = 'chip';
+      li.className = L === sel ? 'chip on' : 'chip';
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'chip-main';
@@ -1033,6 +1091,7 @@ function refreshPanel() {
       main.setAttribute('aria-label', `Tatuagem ${i + 1}${L.pl ? '' : ' (falta posicionar)'}`);
       main.append(thumbOf(L.tex));
       const label = document.createElement('span');
+      label.className = 'chip-num';
       label.textContent = `${i + 1}`;
       if (!L.pl) {
         const pend = document.createElement('span');
@@ -1047,7 +1106,7 @@ function refreshPanel() {
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'chip-del';
-      del.textContent = '×';
+      del.innerHTML = icon('x');
       del.setAttribute('aria-label', `Remover tatuagem ${i + 1}`);
       del.addEventListener('click', () => {
         if (!locked) removeLayer(L);
@@ -1178,7 +1237,7 @@ function describe(L: Layer) {
   if (f.hitBorder) parts.push('O membro sai da foto: curvatura estimada.');
   const cut = cutAt(L);
   if (cut) {
-    parts.push(`Passa ${ofJoint(cut)} e é cortada ali: "Lados" encolhe só esse lado; "Contorno" (bolinha amarela) leva além.`);
+    parts.push(`Passa ${ofJoint(cut)} e é cortada ali: "Lados" encolhe só esse lado; "Contorno" (bolinha dourada) leva além.`);
   } else {
     parts.push(
       layers.length > 1
@@ -1324,7 +1383,7 @@ compareBtn.addEventListener('pointercancel', stopCompare);
 compareBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------- Ajustar contorno (correção manual das bordas e das pontas do membro) ----------
-/** Bolinha de ajuste: na borda (verde, move a borda naquele trecho) ou na ponta do membro (amarela). */
+/** Bolinha de ajuste: na borda (branca, move a borda naquele trecho) ou na ponta do membro (dourada). */
 type AdjustHandle =
   | { kind: 'edge'; side: 'a' | 'b'; t: number; x: number; y: number }
   | { kind: 'tip'; end: 0 | 1; t: number; x: number; y: number };
@@ -1340,11 +1399,10 @@ function setAdjustMode(on: boolean) {
   syncToolUI();
   if (adjustMode && placed(sel)) {
     const joints = sel.frame.profile?.ends ? sel.frame.profile.joints : null;
-    const msg = ['Verdes: arraste até a borda real da pele; cada bolinha acerta o seu trecho.'];
+    const msg = ['Brancas: arraste até a borda real da pele; cada bolinha acerta o seu trecho.'];
     if (joints) {
-      msg.push(
-        `Amarelas: onde o membro termina (${joints[0]} e ${joints[1]}). Arraste para a tatuagem ir além ou parar antes.`,
-      );
+      const where = joints[0] === joints[1] ? '' : ` (${joints[0]} e ${joints[1]})`;
+      msg.push(`Douradas: onde o membro termina${where}. Arraste para a tatuagem ir além ou parar antes.`);
     }
     setStatus(msg.join(' '));
   } else if (was && placed(sel)) describe(sel);
@@ -1860,23 +1918,28 @@ function syncAreaUI() {
   const has = areaStrokes.length > 0;
   areaUndoBtn.disabled = !has;
   areaClearBtn.disabled = !has;
-  areaGoBtn.textContent = sel ? 'Encaixar' : 'Escolher tatuagem';
+  $('areaGoLabel').textContent = sel ? 'Encaixar' : 'Escolher tatuagem';
   areaTapBtn.hidden = !(sel && !sel.pl);
   const v = Number(areaSizeIn.value);
-  $('areaSizeOut').textContent = v < 18 ? 'fino' : v < 36 ? 'médio' : 'grosso';
+  $('areaSizeOut').textContent = v < 18 ? 'Fino' : v < 36 ? 'Médio' : 'Grosso';
 }
 
 /** Encaixa a tatuagem selecionada na área pintada. */
 function fitSelToArea() {
   if (!photo) return;
-  if (!areaStrokes.length) {
-    setStatus('Primeiro pinte com o dedo a área que a tatuagem vai cobrir.');
-    return;
-  }
   if (!sel) {
+    // Sem tatuagem ainda: escolhe agora (com ou sem área pintada; sem, ela espera a pintura).
     addMenu.hidden = false;
     addBtn.setAttribute('aria-expanded', 'true');
-    setStatus('Área pronta. Agora escolha a tatuagem: ela já vem no tamanho da área.');
+    setStatus(
+      areaStrokes.length
+        ? 'Área pronta. Agora escolha a tatuagem: ela já vem no tamanho da área.'
+        : 'Escolha a tatuagem. Depois pinte a área que ela vai cobrir (ou toque em "Prefiro só tocar no lugar").',
+    );
+    return;
+  }
+  if (!areaStrokes.length) {
+    setStatus('Primeiro pinte com o dedo a área que a tatuagem vai cobrir.');
     return;
   }
   if (!photo.analyzed && !modelsFailed) {
@@ -1988,6 +2051,7 @@ type Tool = 'area' | 'size' | 'rot' | 'ink' | 'sides' | 'adjust' | 'erase' | 'mo
 const freeTool = (t: Tool | null) => t === 'more' || t === 'area';
 let tool: Tool | null = null;
 const toolPanel = $('toolPanel');
+const dock = $('dock');
 const toolButtons = [...document.querySelectorAll<HTMLButtonElement>('#toolbar .tool')];
 const panels = [...toolPanel.querySelectorAll<HTMLElement>('[data-panel]')];
 
@@ -2031,6 +2095,8 @@ function syncToolUI() {
   syncAreaUI();
   toolPanel.hidden = !tool;
   for (const p of panels) p.hidden = p.dataset.panel !== tool;
+  dock.dataset.tool = tool ?? '';
+  dock.classList.toggle('no-layers', !layers.length);
   const noLayer = !placed(sel);
   for (const id of ['refit', 'decalBtn']) $<HTMLButtonElement>(id).disabled = noLayer || locked;
   for (const el of [curvIn, clipIn, flipIn]) el.disabled = noLayer || locked;
@@ -2044,6 +2110,8 @@ for (const b of toolButtons) {
   });
 }
 for (const b of toolPanel.querySelectorAll<HTMLButtonElement>('[data-done]')) b.addEventListener('click', () => setTool(null));
+for (const b of toolPanel.querySelectorAll<HTMLButtonElement>('[data-undo]')) b.addEventListener('click', () => undoBtn.click());
+for (const b of toolPanel.querySelectorAll<HTMLButtonElement>('[data-save]')) b.addEventListener('click', () => $('save').click());
 
 // ----- Adicionar tatuagem (menu do botão "+") -----
 const addBtn = $<HTMLButtonElement>('addBtn');
@@ -2063,7 +2131,7 @@ addMenu.addEventListener('click', (e) => {
   if ((e.target as HTMLElement).closest('label')) setTimeout(closeAddMenu, 0);
 });
 document.addEventListener('pointerdown', (e) => {
-  if (!addMenu.hidden && !(e.target as HTMLElement).closest('.add-wrap')) closeAddMenu();
+  if (!addMenu.hidden && !(e.target as HTMLElement).closest('.add-wrap, #addMenu, #areaGo')) closeAddMenu();
 });
 
 // ----- Trava: com a edição travada, tocar na foto não muda nada (só aproxima e afasta) -----
@@ -2657,7 +2725,7 @@ function drawOverlay() {
     const tB = ends ? ends[1] : Math.max(sHi, t0 + ext);
     const pt = (t: number, s: number): [number, number] => [f.cx + f.vx * s + f.ux * t, f.cy + f.vy * s + f.uy * t];
     octx.lineWidth = lw * 1.3;
-    octx.strokeStyle = '#7cf29c';
+    octx.strokeStyle = '#e8b45f';
     octx.beginPath();
     const N = 160;
     for (let k = 0; k <= N; k++) {
@@ -2686,10 +2754,19 @@ function drawOverlay() {
       const r = hr * (active ? 1.3 : tip ? 1.15 : 1);
       octx.beginPath();
       octx.arc(hd.x, hd.y, r, 0, Math.PI * 2);
-      octx.fillStyle = tip ? 'rgba(255, 209, 102, 0.9)' : 'rgba(124, 242, 156, 0.75)';
+      if (active) {
+        // Bolinha sendo arrastada: halo dourado em volta.
+        octx.beginPath();
+        octx.arc(hd.x, hd.y, r * 1.9, 0, Math.PI * 2);
+        octx.fillStyle = 'rgba(232, 180, 95, 0.35)';
+        octx.fill();
+        octx.beginPath();
+        octx.arc(hd.x, hd.y, r, 0, Math.PI * 2);
+      }
+      octx.fillStyle = tip ? '#e8b45f' : '#ffffff';
       octx.fill();
-      octx.lineWidth = r * 0.18;
-      octx.strokeStyle = tip ? '#5a3d00' : '#0b3d1c';
+      octx.lineWidth = r * 0.3;
+      octx.strokeStyle = tip ? '#3a2606' : '#e8b45f';
       octx.stroke();
       if (tip) {
         // Setinha ao longo do membro: a ponta anda para frente e para trás.
@@ -2711,8 +2788,8 @@ function drawOverlay() {
 
   if (sel?.outline && (sideMode || debugIn.checked || showFrameUntil > performance.now())) {
     octx.lineWidth = lw * (sideMode ? 1 : 0.7);
-    octx.strokeStyle = sideMode ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.8)';
-    octx.setLineDash([lw * 3, lw * 3]);
+    octx.strokeStyle = sideMode ? 'rgba(255,255,255,0.95)' : 'rgba(232, 180, 95, 0.95)';
+    octx.setLineDash([lw * 3, lw * 2.2]);
     octx.beginPath();
     sel.outline.forEach(([x, y], i) => (i ? octx.lineTo(x, y) : octx.moveTo(x, y)));
     octx.closePath();
@@ -2728,10 +2805,10 @@ function drawOverlay() {
       const r = hr * (active ? 1.3 : 1);
       octx.beginPath();
       octx.arc(hd.x, hd.y, r, 0, Math.PI * 2);
-      octx.fillStyle = active ? 'rgba(224, 179, 106, 0.95)' : 'rgba(255, 255, 255, 0.92)';
+      octx.fillStyle = active ? '#e8b45f' : '#ffffff';
       octx.fill();
-      octx.lineWidth = r * 0.2;
-      octx.strokeStyle = '#1a1408';
+      octx.lineWidth = r * 0.3;
+      octx.strokeStyle = active ? '#3a2606' : '#e8b45f';
       octx.stroke();
     }
   }
