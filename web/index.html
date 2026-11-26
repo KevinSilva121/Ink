@@ -298,7 +298,22 @@
       </div>
 
       <div id="xResult" hidden>
-        <div class="x-box x-paper"><canvas id="xOut"></canvas></div>
+        <div class="x-box x-paper">
+          <canvas id="xOut"></canvas>
+          <canvas id="xEraseLoupe" class="x-loupe" aria-hidden="true" hidden></canvas>
+          <span class="x-ring" id="xRing" aria-hidden="true" hidden></span>
+        </div>
+        <div class="x-erasebar" id="xEraseBar" hidden>
+          <div class="slider slider-row">
+            <label for="xBrush">Tamanho</label>
+            <input id="xBrush" type="range" min="6" max="50" value="16" />
+            <output id="xBrushOut"></output>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn ghost" id="xUndo" disabled><svg class="ic" aria-hidden="true"><use href="#i-undo" /></svg>Desfazer</button>
+            <button type="button" class="btn" id="xEraseDone"><svg class="ic" aria-hidden="true"><use href="#i-check" /></svg>Pronto</button>
+          </div>
+        </div>
         <div class="segmented seg-stack" role="radiogroup" aria-labelledby="xModeLbl">
           <span class="seg-label" id="xModeLbl">Tipo de tatuagem</span>
           <label><input type="radio" name="xMode" value="cor" checked />Colorida</label>
@@ -332,7 +347,6 @@
         </div>
         <div class="tiles">
           <button type="button" class="tile" id="xErase" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-eraser" /></svg><span>Borracha</span></button>
-          <button type="button" class="tile" id="xUndo" hidden><svg class="ic" aria-hidden="true"><use href="#i-undo" /></svg>Desfazer</button>
           <button type="button" class="tile" id="xRotate"><svg class="ic" aria-hidden="true"><use href="#i-rotate" /></svg>Girar 90°</button>
           <button type="button" class="tile" id="xAgain"><svg class="ic" aria-hidden="true"><use href="#i-dashed" /></svg>Refazer contorno</button>
           <button type="button" class="tile" id="xSave"><svg class="ic" aria-hidden="true"><use href="#i-download" /></svg>Salvar PNG</button>

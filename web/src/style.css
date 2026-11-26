@@ -1556,8 +1556,56 @@ body.locked .chip-del {
   max-height: 52vh;
 }
 
+.x-paper {
+  position: relative;
+}
+
 .x-paper.erasing canvas {
   cursor: cell;
+}
+
+/* Lupa da borracha: fundo branco como o papel. */
+.x-paper canvas.x-loupe {
+  max-height: none;
+  background: #fff;
+}
+
+/* Tamanho da borracha em tamanho real, no meio do desenho, enquanto mexe no controle. */
+.x-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 2px dashed #111;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Apagando: o desenho, o tamanho da borracha, Desfazer e Pronto; o resto sai até terminar. */
+.x-erasebar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 16px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.x-erasebar .actions {
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+.x-erasebar .btn {
+  min-width: 0;
+  min-height: 52px;
+}
+
+#xResult.erasing > :not(.x-paper, .x-erasebar) {
+  display: none;
 }
 
 .card.sliders {

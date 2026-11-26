@@ -39,6 +39,10 @@ const unwrapIn = $<HTMLInputElement>('xUnwrap');
 const trimIn = $<HTMLInputElement>('xTrim');
 const eraseBtn = $('xErase');
 const undoBtn = $<HTMLButtonElement>('xUndo');
+const eraseBar = $('xEraseBar');
+const brushIn = $<HTMLInputElement>('xBrush');
+const eraseLoupe = $<HTMLCanvasElement>('xEraseLoupe');
+const ring = $('xRing');
 
 /** Resolução máxima da foto guardada (detalhe da tatuagem) e da foto usada na análise do corpo. */
 const HI_SIDE = 3200;
@@ -506,28 +510,52 @@ const LOUPE_CSS = 132;
 const LOUPE_ZOOM = 2.4;
 
 function drawLoupe(p: { x: number; y: number } | null) {
+  drawLoupeOf(photoCv, loupe, p);
+}
+
+/**
+ * Lupa sobre `src` (ponto `p` em pixels do canvas): do lado oposto ao dedo, no alto.
+ * `ringCss` > 0 desenha o tamanho da borracha (raio em px de tela) em volta da mira.
+ */
+function drawLoupeOf(src: HTMLCanvasElement, lp: HTMLCanvasElement, p: { x: number; y: number } | null, zoom = LOUPE_ZOOM, ringCss = 0) {
   if (!p) {
-    loupe.hidden = true;
+    lp.hidden = true;
     return;
   }
-  const r = photoCv.getBoundingClientRect();
+  const r = src.getBoundingClientRect();
+  if (!r.width) return;
   const dpr = window.devicePixelRatio || 1;
   const size = Math.round(LOUPE_CSS * dpr);
-  if (loupe.width !== size) loupe.width = loupe.height = size;
-  // Do lado oposto ao dedo, no alto da foto.
-  const fingerX = (p.x / photoCv.width) * r.width;
-  loupe.classList.toggle('right', fingerX < r.width / 2);
-  loupe.hidden = false;
-  const span = ((LOUPE_CSS / LOUPE_ZOOM) * photoCv.width) / r.width; // pixels da foto mostrados
-  const g = loupe.getContext('2d')!;
-  g.fillStyle = '#000';
+  if (lp.width !== size) lp.width = lp.height = size;
+  const fingerX = (p.x / src.width) * r.width;
+  lp.classList.toggle('right', fingerX < r.width / 2);
+  lp.hidden = false;
+  const span = ((LOUPE_CSS / zoom) * src.width) / r.width; // pixels do canvas mostrados
+  const g = lp.getContext('2d')!;
+  const paperBg = !!ringCss;
+  g.fillStyle = paperBg ? '#fff' : '#000';
   g.fillRect(0, 0, size, size);
   g.imageSmoothingEnabled = true;
-  g.drawImage(photoCv, p.x - span / 2, p.y - span / 2, span, span, 0, 0, size, size);
-  // Mira no ponto exato do dedo.
-  g.strokeStyle = 'rgba(255,255,255,0.9)';
-  g.lineWidth = Math.max(1, dpr);
+  g.drawImage(src, p.x - span / 2, p.y - span / 2, span, span, 0, 0, size, size);
   const c = size / 2;
+  if (ringCss) {
+    // O que fica dentro do círculo é apagado (borda tracejada clara e escura: aparece em tudo).
+    const rr = ringCss * zoom * dpr;
+    g.lineWidth = Math.max(1.5, 1.5 * dpr);
+    g.setLineDash([4 * dpr, 3 * dpr]);
+    g.strokeStyle = 'rgba(255,255,255,0.95)';
+    g.beginPath();
+    g.arc(c, c, rr, 0, Math.PI * 2);
+    g.stroke();
+    g.lineDashOffset = 4 * dpr;
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.stroke();
+    g.setLineDash([]);
+    g.lineDashOffset = 0;
+  }
+  // Mira no ponto exato do dedo.
+  g.strokeStyle = paperBg ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)';
+  g.lineWidth = Math.max(1, dpr);
   const a = size * 0.08;
   g.beginPath();
   g.moveTo(c - a, c);
@@ -813,6 +841,8 @@ async function process() {
  * `fresh` recalcula os níveis automáticos (preto mais escuro, tom do preto).
  */
 function rebuild(W: Work, fresh: boolean) {
+  // O desenho remontado já inclui toda a borracha: a prévia recomeça no próximo renderOut.
+  if (pv) pv.built = W.strokes.length;
   W.design = sampleDesign(W.map, W.ink, W.erase, trimIn.checked && W.keepLimb ? W.keepLimb : W.keep);
   const base = fresh || !W.prep ? prepFinish(W.design) : W.prep;
   W.trim = trimIn.checked ? trimScraps(W.design, base.kHi, !W.snapped) : { edge: 0, specks: 0 };
@@ -854,6 +884,8 @@ const unrotated = document.createElement('canvas');
 function renderOut() {
   const W = S?.work;
   if (!W) return;
+  // Borracha que ainda estava só na prévia: entra no desenho antes de qualquer outra mudança.
+  if (pv && W.strokes.length !== pv.built) rebuild(W, false);
   const fin = finish();
   // No modo traço, renderiza em resolução maior: as linhas saem lisas.
   W.scale = fin.mode === 'traco' ? clamp(2400 / Math.max(W.design.w, W.design.h), 1, 2) : 1;
@@ -864,11 +896,31 @@ function renderOut() {
   const swap = W.rot % 2 === 1;
   outCv.width = swap ? img.height : img.width;
   outCv.height = swap ? img.width : img.height;
+  pv = {
+    base: img,
+    shown: new ImageData(new Uint8ClampedArray(img.data), img.width, img.height),
+    alpha: new Uint8Array(img.width * img.height),
+    undo: [],
+    built: W.strokes.length,
+    dirty: null,
+    curve: fin.mode === 'traco' ? (a) => smoothstep(0.4, 0.6, a) : (a) => a,
+  };
+  drawRotated(W);
+}
+
+/** O desenho (antes de girar) → tela, girado. Com giro zero, só o retângulo que mudou. */
+function drawRotated(W: Work, box?: Box) {
   const ctx = outCv.getContext('2d')!;
+  if (box && W.rot === 0) {
+    const [x0, y0, x1, y1] = box;
+    ctx.clearRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    ctx.drawImage(unrotated, x0, y0, x1 - x0 + 1, y1 - y0 + 1, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    return;
+  }
   ctx.save();
   ctx.translate(outCv.width / 2, outCv.height / 2);
   ctx.rotate((W.rot * Math.PI) / 2);
-  ctx.drawImage(unrotated, -img.width / 2, -img.height / 2);
+  ctx.drawImage(unrotated, -unrotated.width / 2, -unrotated.height / 2);
   ctx.restore();
 }
 
@@ -924,31 +976,114 @@ $('xAgain').addEventListener('click', () => {
 });
 
 // ---------- Borracha (no desenho extraído) ----------
+// O apagado aparece na hora, só em volta do dedo: a prévia clareia a imagem já desenhada até o
+// branco, com a mesma conta da borracha de verdade (que vale na foto de trabalho, pelo mapa do
+// desenho). O desenho inteiro (rebarbas, acabamento) é remontado uma vez só, em "Pronto": num
+// celular fraco, remontar a cada movimento do dedo travava a tela por segundos.
 let erasing = false;
-let stroke: Stroke | null = null;
+let stroke: (Stroke & { lastU: [number, number] | null }) | null = null;
+
+type Box = [number, number, number, number];
+
+interface Preview {
+  /** O desenho como foi montado (sem a prévia) e o que está na tela, antes de girar. */
+  base: ImageData;
+  shown: ImageData;
+  /** Quanto cada pixel já foi apagado na prévia (0..255). */
+  alpha: Uint8Array;
+  /** Para cada traço ainda não montado: os blocos de `alpha` como estavam antes dele. */
+  undo: Map<number, Uint8Array>[];
+  /** Quantos traços o desenho montado já inclui. */
+  built: number;
+  /** Retângulo que mudou e ainda não foi para a tela. */
+  dirty: Box | null;
+  /**
+   * Quanto clareia para cada quantidade apagada (0..1). No modo traço o acabamento vira preto ou
+   * branco: pouco apagado continua preto, muito apagado some de vez (como no resultado).
+   */
+  curve: (a: number) => number;
+}
+let pv: Preview | null = null;
+const TILE = 64;
+/** Traços que dá para desfazer na hora (os mais antigos voltam remontando o desenho). */
+const UNDO_MAX = 30;
+
+const brushCss = () => Number(brushIn.value);
 
 function setErase(on: boolean) {
   erasing = on && !!S?.work;
   eraseBtn.setAttribute('aria-pressed', String(erasing));
-  eraseBtn.querySelector('span')!.textContent = erasing ? 'Pronto' : 'Borracha';
   paper.classList.toggle('erasing', erasing);
-  undoBtn.hidden = !erasing;
+  resultView.classList.toggle('erasing', erasing);
+  eraseBar.hidden = !erasing;
   updateUndo();
-  if (erasing) {
-    setStatus('Passe o dedo no que não é tatuagem: pelos, pintas, sombras, fundo. Toque em "Pronto" quando terminar.');
-    // No celular o botão fica embaixo do desenho: volta para o desenho.
-    paper.scrollIntoView({ block: 'nearest' });
+  updateBrushCursor();
+  if (!erasing) {
+    stroke = null;
+    drawLoupeOf(outCv, eraseLoupe, null);
+    return;
   }
+  setStatus('Passe o dedo no que não é tatuagem: pelos, pintas, sombras, fundo. A lupa mostra de perto o que sai.');
+  // No celular o botão fica embaixo do desenho: volta para o desenho.
+  paper.scrollIntoView({ block: 'nearest' });
+}
+
+/** "Pronto": a borracha entra de vez no desenho (remonta uma vez, com as rebarbas). */
+async function finishErase() {
+  const W = S?.work;
+  setErase(false);
+  if (!W || !pv || W.strokes.length === pv.built) return;
+  setStatus('Aplicando a borracha…');
+  await nextPaint();
+  if (S?.work !== W) return;
+  renderOut();
+  setStatus(['Borracha aplicada.', trimNote(W)].filter(Boolean).join(' '));
 }
 
 function updateUndo() {
   undoBtn.disabled = !S?.work?.strokes.length;
 }
 
-eraseBtn.addEventListener('click', () => setErase(!erasing));
+function updateBrushOut() {
+  const v = brushCss();
+  $('xBrushOut').textContent = v < 12 ? 'Fino' : v < 26 ? 'Médio' : 'Grosso';
+}
+
+/** No computador, o cursor é o círculo da borracha no tamanho dela. */
+function updateBrushCursor() {
+  if (!erasing) {
+    outCv.style.cursor = '';
+    return;
+  }
+  const r = brushCss();
+  const c = r + 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${2 * c}" height="${2 * c}"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#000" stroke-width="2"/><circle cx="${c}" cy="${c}" r="${r - 1.5}" fill="none" stroke="#fff" stroke-width="1"/></svg>`;
+  outCv.style.cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${c} ${c}, cell`;
+}
+
+let ringTimer = 0;
+brushIn.addEventListener('input', () => {
+  updateBrushOut();
+  updateBrushCursor();
+  // Mostra o tamanho de verdade no meio do desenho enquanto o controle mexe.
+  const d = 2 * brushCss();
+  ring.style.width = ring.style.height = `${d}px`;
+  ring.hidden = false;
+  clearTimeout(ringTimer);
+  ringTimer = window.setTimeout(() => (ring.hidden = true), 900);
+});
+updateBrushOut();
+
+eraseBtn.addEventListener('click', () => {
+  if (erasing) void finishErase();
+  else setErase(true);
+});
+$('xEraseDone').addEventListener('click', () => void finishErase());
+
 undoBtn.addEventListener('click', () => {
   const W = S?.work;
   if (!W?.strokes.length) return;
+  const wasPreview = !!pv && W.strokes.length > pv.built && pv.undo.length > 0;
   W.strokes.pop();
   W.erase = null;
   if (W.strokes.length) {
@@ -958,12 +1093,17 @@ undoBtn.addEventListener('click', () => {
       for (let k = 1; k < s.pts.length; k++) stampSegment(W, s.pts[k - 1], s.pts[k], s.r);
     }
   }
+  if (wasPreview && pv) restoreTiles(pv, pv.undo.pop()!);
+  else {
+    // Traço que já estava no desenho montado: remonta sem ele.
+    rebuild(W, false);
+    renderOut();
+  }
   updateUndo();
-  scheduleRender(true);
 });
 
-/** Ponto do desenho exibido (já girado e ampliado) → ponto da imagem de trabalho. */
-function toWork(W: Work, e: PointerEvent): [number, number] | null {
+/** Ponto do desenho exibido → ponto do desenho antes de girar (pixels de `unrotated`). */
+function toUnrotated(W: Work, e: PointerEvent): [number, number] {
   const p = canvasPoint(outCv, e);
   const uw = unrotated.width;
   const uh = unrotated.height;
@@ -972,6 +1112,11 @@ function toWork(W: Work, e: PointerEvent): [number, number] | null {
   if (W.rot === 1) [x, y] = [y, uh - 1 - x];
   else if (W.rot === 2) [x, y] = [uw - 1 - x, uh - 1 - y];
   else if (W.rot === 3) [x, y] = [uw - 1 - y, x];
+  return [x, y];
+}
+
+/** Ponto do desenho antes de girar → ponto da imagem de trabalho (null: fora do desenho). */
+function unrotatedToWork(W: Work, [x, y]: [number, number]): [number, number] | null {
   const dx = clamp(Math.round(x / W.scale), 0, W.map.w - 1);
   const dy = clamp(Math.round(y / W.scale), 0, W.map.h - 1);
   const i = (dy * W.map.w + dx) * 2;
@@ -982,7 +1127,7 @@ function toWork(W: Work, e: PointerEvent): [number, number] | null {
 
 function brushRadius(W: Work) {
   const shown = outCv.getBoundingClientRect().width || 1;
-  return (18 * outCv.width) / shown / W.scale;
+  return (brushCss() * outCv.width) / shown / W.scale;
 }
 
 function stamp(W: Work, [x, y]: [number, number], r: number) {
@@ -1005,33 +1150,186 @@ function stampSegment(W: Work, a: [number, number], b: [number, number], r: numb
   for (let k = 1; k <= n; k++) stamp(W, [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n], r);
 }
 
+/** Guarda (uma vez por traço) os blocos de `alpha` que o traço vai mudar. */
+function saveTiles(P: Preview, x0: number, y0: number, x1: number, y1: number) {
+  const cur = P.undo[P.undo.length - 1];
+  if (!cur) return;
+  const W = P.shown.width;
+  const H = P.shown.height;
+  const ntx = Math.ceil(W / TILE);
+  for (let ty = Math.floor(y0 / TILE); ty <= Math.floor(y1 / TILE); ty++) {
+    for (let tx = Math.floor(x0 / TILE); tx <= Math.floor(x1 / TILE); tx++) {
+      const key = ty * ntx + tx;
+      if (cur.has(key)) continue;
+      const copy = new Uint8Array(TILE * TILE);
+      for (let y = ty * TILE, row = 0; y < Math.min(H, (ty + 1) * TILE); y++, row++) {
+        copy.set(P.alpha.subarray(y * W + tx * TILE, y * W + Math.min(W, (tx + 1) * TILE)), row * TILE);
+      }
+      cur.set(key, copy);
+    }
+  }
+}
+
+/** Desfaz na hora o último traço da prévia: os blocos voltam como estavam. */
+function restoreTiles(P: Preview, tiles: Map<number, Uint8Array>) {
+  const W = P.shown.width;
+  const H = P.shown.height;
+  const ntx = Math.ceil(W / TILE);
+  const s = P.shown.data;
+  const b = P.base.data;
+  for (const [key, copy] of tiles) {
+    const tx = key % ntx;
+    const ty = Math.floor(key / ntx);
+    const x0 = tx * TILE;
+    const x1 = Math.min(W, x0 + TILE) - 1;
+    const y0 = ty * TILE;
+    const y1 = Math.min(H, y0 + TILE) - 1;
+    for (let y = y0, row = 0; y <= y1; y++, row++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * W + x;
+        const a = P.curve((P.alpha[i] = copy[row * TILE + (x - x0)]) / 255);
+        const p = i * 4;
+        s[p] = b[p] + (255 - b[p]) * a;
+        s[p + 1] = b[p + 1] + (255 - b[p + 1]) * a;
+        s[p + 2] = b[p + 2] + (255 - b[p + 2]) * a;
+      }
+    }
+    P.dirty = union(P.dirty, [x0, y0, x1, y1]);
+  }
+  scheduleBlit();
+}
+
+const union = (a: Box | null, b: Box): Box =>
+  a ? [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])] : b;
+
+/**
+ * Prévia de uma marca da borracha: cada pixel do desenho perto do dedo vê onde cai na imagem de
+ * trabalho (pelo mapa) e clareia na mesma medida que a borracha de verdade vai apagar ali.
+ */
+function previewStamp(W: Work, P: Preview, wc: [number, number], uc: [number, number], r: number) {
+  const UW = P.shown.width;
+  const UH = P.shown.height;
+  const s = W.scale;
+  // Raio de busca na tela: o mapa pode esticar o desenho (desentortar) perto da borda do membro.
+  const R = 2.5 * r * s;
+  const x0 = Math.max(0, Math.floor(uc[0] - R));
+  const x1 = Math.min(UW - 1, Math.ceil(uc[0] + R));
+  const y0 = Math.max(0, Math.floor(uc[1] - R));
+  const y1 = Math.min(UH - 1, Math.ceil(uc[1] + R));
+  if (x0 > x1 || y0 > y1) return;
+  saveTiles(P, x0, y0, x1, y1);
+  const { w: dw, h: dh, map } = W.map;
+  const R2 = R * R;
+  const rIn = 0.6 * r;
+  const d = P.shown.data;
+  const b = P.base.data;
+  const alpha = P.alpha;
+  for (let y = y0; y <= y1; y++) {
+    const ry = y - uc[1];
+    const row = clamp(Math.round(y / s), 0, dh - 1) * dw;
+    for (let x = x0; x <= x1; x++) {
+      const rx = x - uc[0];
+      if (rx * rx + ry * ry > R2) continue;
+      const k = (row + clamp(Math.round(x / s), 0, dw - 1)) * 2;
+      const mx = map[k];
+      if (Number.isNaN(mx)) continue;
+      const dist = Math.hypot(mx - wc[0], map[k + 1] - wc[1]);
+      if (dist >= r) continue;
+      const a = Math.round(255 * (1 - smoothstep(rIn, r, dist)));
+      const i = y * UW + x;
+      if (a <= alpha[i]) continue;
+      alpha[i] = a;
+      const f = P.curve(a / 255);
+      const p = i * 4;
+      d[p] = b[p] + (255 - b[p]) * f;
+      d[p + 1] = b[p + 1] + (255 - b[p + 1]) * f;
+      d[p + 2] = b[p + 2] + (255 - b[p + 2]) * f;
+    }
+  }
+  P.dirty = union(P.dirty, [x0, y0, x1, y1]);
+}
+
+// A tela é atualizada uma vez por quadro, só no pedaço que mudou (e a lupa junto).
+let blitFrame = 0;
+let loupeAt: { x: number; y: number } | null = null;
+function scheduleBlit() {
+  blitFrame ||= requestAnimationFrame(() => {
+    blitFrame = 0;
+    const W = S?.work;
+    if (!W || !pv) return;
+    if (pv.dirty) {
+      const box = pv.dirty;
+      pv.dirty = null;
+      unrotated.getContext('2d')!.putImageData(pv.shown, 0, 0, box[0], box[1], box[2] - box[0] + 1, box[3] - box[1] + 1);
+      drawRotated(W, box);
+    }
+    if (erasing) drawEraseLoupe();
+  });
+}
+
+function drawEraseLoupe() {
+  // Ampliação que mantém o círculo da borracha dentro da lupa.
+  const zoom = clamp(56 / brushCss(), 1.2, 3);
+  drawLoupeOf(outCv, eraseLoupe, loupeAt, zoom, brushCss());
+}
+
+/** Uma marca de borracha (no desenho de verdade e na prévia). */
+function eraseAt(W: Work, wc: [number, number], uc: [number, number], r: number) {
+  stamp(W, wc, r);
+  if (pv) previewStamp(W, pv, wc, uc, r);
+}
+
 outCv.addEventListener('pointerdown', (e) => {
   const W = S?.work;
-  if (!erasing || !W) return;
+  if (!erasing || !W || !pv) return;
   outCv.setPointerCapture(e.pointerId);
-  const p = toWork(W, e);
-  stroke = { r: brushRadius(W), pts: [] };
+  usesTouch = e.pointerType !== 'mouse';
+  pv.undo.push(new Map());
+  if (pv.undo.length > UNDO_MAX) pv.undo.shift();
+  stroke = { r: brushRadius(W), pts: [], lastU: null };
+  const u = toUnrotated(W, e);
+  const p = unrotatedToWork(W, u);
   if (p) {
     stroke.pts.push(p);
-    stamp(W, p, stroke.r);
-    scheduleRender(true);
+    stroke.lastU = u;
+    eraseAt(W, p, u, stroke.r);
   }
+  loupeAt = usesTouch ? canvasPoint(outCv, e) : null;
+  scheduleBlit();
 });
+
 outCv.addEventListener('pointermove', (e) => {
   const W = S?.work;
   if (!stroke || !W) return;
-  const p = toWork(W, e);
-  if (!p) return;
-  const last = stroke.pts[stroke.pts.length - 1];
-  stroke.pts.push(p);
-  if (last) stampSegment(W, last, p, stroke.r);
-  else stamp(W, p, stroke.r);
-  scheduleRender(true);
+  if (usesTouch) loupeAt = canvasPoint(outCv, e);
+  const u = toUnrotated(W, e);
+  const p = unrotatedToWork(W, u);
+  if (p) {
+    const last = stroke.pts[stroke.pts.length - 1];
+    const lu = stroke.lastU;
+    stroke.pts.push(p);
+    stroke.lastU = u;
+    if (last && lu) {
+      // Marcas a cada 1/3 do raio, no desenho e na prévia (os dois andam juntos).
+      const n = Math.max(1, Math.ceil(Math.hypot(p[0] - last[0], p[1] - last[1]) / (stroke.r / 3)));
+      for (let k = 1; k <= n; k++) {
+        const t = k / n;
+        eraseAt(W, [last[0] + (p[0] - last[0]) * t, last[1] + (p[1] - last[1]) * t], [lu[0] + (u[0] - lu[0]) * t, lu[1] + (u[1] - lu[1]) * t], stroke.r);
+      }
+    } else eraseAt(W, p, u, stroke.r);
+  }
+  scheduleBlit();
 });
+
 const endStroke = () => {
   const W = S?.work;
-  if (stroke && W && stroke.pts.length) W.strokes.push(stroke);
+  if (stroke && W) {
+    if (stroke.pts.length) W.strokes.push({ r: stroke.r, pts: stroke.pts });
+    else pv?.undo.pop(); // traço todo fora do desenho: nada para desfazer
+  }
   stroke = null;
+  loupeAt = null;
+  drawLoupeOf(outCv, eraseLoupe, null);
   updateUndo();
 };
 outCv.addEventListener('pointerup', endStroke);
@@ -1040,6 +1338,8 @@ outCv.addEventListener('pointercancel', endStroke);
 // ---------- Usar / salvar / fechar ----------
 /** PNG do desenho final (síncrono: o toBlob às vezes demora até o navegador ficar ocioso). */
 function exportBlob(): Blob {
+  // Borracha ainda só na prévia: entra no desenho antes de salvar.
+  if (pv && S?.work && S.work.strokes.length !== pv.built) renderOut();
   const bin = atob(outCv.toDataURL('image/png').split(',')[1]);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -1073,4 +1373,5 @@ dlg.addEventListener('close', () => {
   onUse = null;
   busy = false;
   setErase(false);
+  pv = null;
 });
