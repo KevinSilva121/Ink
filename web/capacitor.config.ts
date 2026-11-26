@@ -14,11 +14,12 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
-    // Abertura do sistema (a rosa no preto): fica até a página mostrar a arte da abertura do app
-    // (main.ts chama SplashScreen.hide) e se dissolve nela, sem tela preta no meio.
+    // Abertura do sistema (a rosa no preto): fica até a página pôr a rosa dela no mesmo lugar
+    // (script do index.html chama SplashScreen.hide) e se dissolve nela, sem tela preta no meio.
+    // A mesma duração está no index.html (FADE).
     SplashScreen: {
       launchAutoHide: false,
-      launchFadeOutDuration: 450,
+      launchFadeOutDuration: 300,
       backgroundColor: '#050505',
       showSpinner: false,
       androidScaleType: 'CENTER_CROP',

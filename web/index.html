@@ -60,8 +60,8 @@
     <!-- No app: a abertura do sistema (a rosa no preto) fica até a página ficar pronta. Por baixo
          dela, a página já mostra a mesma rosa, no mesmo lugar e tamanho; a do sistema se dissolve
          (não se vê troca) e a rosa da página anda e cresce até o lugar do cartão na arte, que aparece
-         em volta com esse lugar vazio. Quando a rosa gruda nele, o cartão da arte acende por baixo
-         dela e a rosa se funde nele.
+         em volta com esse lugar vazio. Quando a rosa chega, ela é trocada, no mesmo quadro, pela
+         rosa dourada da arte: sempre uma rosa só na tela.
          Fica aqui, e não no código principal, para começar o quanto antes e para a abertura do
          sistema nunca ficar presa na tela se o app falhar ao iniciar. -->
     <script>
@@ -74,7 +74,11 @@
         var mark = splash.querySelector('.splash-mark');
         var hole = splash.querySelector('.splash-hole');
         var ios = cap.getPlatform && cap.getPlatform() === 'ios';
-        var FADE = 450;
+        // Dissolução da abertura do sistema (igual a launchFadeOutDuration no capacitor.config.ts).
+        // No Android ela só começa quando a página desenha o primeiro quadro depois do hide: a rosa
+        // só sai voando com uma folga depois, para nunca aparecerem duas rosas.
+        var FADE = 300;
+        var FADE_FOLGA = 250;
         // Onde o sistema desenha a rosa. iPhone: a imagem da abertura (2732 px, rosa de 640 px no
         // meio) cobre a tela. Android 12+: o miolo do ícone com 160 px (o ícone da página tem 11% de
         // margem em volta dele). Android mais antigo: como no iPhone.
@@ -164,13 +168,10 @@
               return { left: o.left + 'px', top: o.top + 'px', width: o.width + 'px', height: o.height + 'px' };
             };
             var move = mark.animate([px(start), px(end)], { duration: 750, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
-            // Grudou: o cartão da arte acende por baixo da rosa (o brilho dele aparece em volta) e a
-            // rosa se funde nele.
-            move.onfinish = function () {
-              hole.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, easing: 'ease-out', fill: 'forwards' });
-              mark.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 340, delay: 140, easing: 'ease-in-out', fill: 'forwards' }).onfinish = shown;
-            };
-          }, FADE);
+            // Chegou: troca, no mesmo quadro, pela rosa dourada da arte (no mesmo lugar). Sem
+            // dissolver uma na outra: sempre uma rosa só na tela.
+            move.onfinish = shown;
+          }, FADE + FADE_FOLGA);
         }
         var imgs = [art, mark, hole];
         function ready() {
