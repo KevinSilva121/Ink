@@ -1051,6 +1051,31 @@ body.locked .chip-del {
   font-size: 1.1rem;
 }
 
+.tp-mode .slider-row {
+  text-align: left;
+}
+
+/* Lupa da borracha sobre a foto: no alto, do lado oposto ao dedo (por cima dos botões da foto
+   só enquanto o dedo apaga). */
+.stage-loupe {
+  position: absolute;
+  top: calc(12px + var(--st-over, 0px));
+  left: 12px;
+  z-index: 4;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  background: #000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.stage-loupe.right {
+  left: auto;
+  right: 12px;
+}
+
 .area-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1797,6 +1822,21 @@ body.locked .chip-del {
 .proj-acts .btn .ic {
   width: 18px;
   height: 18px;
+}
+
+/* Celular estreito: ícone em cima e texto embaixo (lado a lado, "Baixar arquivo" passava do botão). */
+@media (max-width: 380px) {
+  .proj-acts .btn {
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 58px;
+    padding: 6px 4px;
+    font-size: 0.8rem;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: center;
+  }
 }
 
 /* ---------- Gerar decalque ---------- */

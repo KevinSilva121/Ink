@@ -20,6 +20,7 @@ import { imageToLocal, localToImage, outline, render, type Box, type Placement }
 import { openExtractor } from './extractor';
 import { acceptPaint, fitArea, gridSize, inkFraction, skinGrid, type Accepted, type SkinGrid } from './area';
 import { openDecal } from './decal';
+import { drawLoupe, zoomForBrush } from './loupe';
 import { clamp, loadToCanvas, resampleBilinear, smoothstep } from './util';
 import {
   askPersistence,
@@ -1632,17 +1633,47 @@ function setEraseMode(on: boolean) {
   if (eraseMode && sideMode) setSideMode(false);
   syncToolUI();
   if (eraseMode) {
-    setStatus('Passe o dedo onde a tatuagem não deve aparecer (dedos, roupa, relógio, cabelo). Dois dedos aproximam a foto.');
+    setStatus('Passe o dedo onde a tatuagem não deve aparecer (dedos, roupa, relógio, cabelo). A lupa mostra de perto; dois dedos aproximam.');
   } else {
     cursor = null;
+    loupeAt = null;
+    drawLoupe(stage, stageLoupe, null);
     if (was && placed(sel)) describe(sel);
   }
   drawOverlay();
 }
 
+const eraseSizeIn = $<HTMLInputElement>('eraseSize');
+const stageLoupe = $<HTMLCanvasElement>('stageLoupe');
+/** Ponto da foto embaixo do dedo enquanto apaga (só no toque: o mouse não cobre a foto). */
+let loupeAt: { x: number; y: number } | null = null;
+
+/** Raio da borracha: o tamanho escolhido, em px de tela (com ou sem zoom). */
 function brushRadius() {
-  return (22 * stage.width) / Math.max(1, stage.getBoundingClientRect().width);
+  return (Number(eraseSizeIn.value) * stage.width) / Math.max(1, stage.getBoundingClientRect().width);
 }
+
+function syncEraseSize() {
+  const v = Number(eraseSizeIn.value);
+  $('eraseSizeOut').textContent = v < 16 ? 'Fino' : v < 34 ? 'Médio' : 'Grosso';
+}
+syncEraseSize();
+
+// Mexendo no tamanho: o círculo da borracha aparece no meio da foto, no tamanho de verdade.
+let sizeRingTimer = 0;
+eraseSizeIn.addEventListener('input', () => {
+  syncEraseSize();
+  if (!photo || !eraseMode) return;
+  const r = stageBox.getBoundingClientRect();
+  cursor = toImage({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+  scheduleOverlay();
+  clearTimeout(sizeRingTimer);
+  sizeRingTimer = window.setTimeout(() => {
+    if (stroke) return;
+    cursor = null;
+    scheduleOverlay();
+  }, 900);
+});
 
 function stamp(erase: Uint8Array, x: number, y: number, r: number) {
   if (!photo) return;
@@ -1651,15 +1682,63 @@ function stamp(erase: Uint8Array, x: number, y: number, r: number) {
   const x1 = Math.min(w - 1, Math.ceil(x + r));
   const y0 = Math.max(0, Math.floor(y - r));
   const y1 = Math.min(h - 1, Math.ceil(y + r));
+  const r2 = r * r;
+  const rIn = 0.6 * r;
+  const rIn2 = rIn * rIn;
   for (let yy = y0; yy <= y1; yy++) {
+    const dy = yy + 0.5 - y;
     for (let xx = x0; xx <= x1; xx++) {
-      const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
-      if (d > r) continue;
-      const a = Math.round(255 * (1 - smoothstep(0.6 * r, r, d)));
+      const dx = xx + 0.5 - x;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      // Miolo apagado por inteiro; só a borda (suave) precisa da raiz.
+      const a = d2 <= rIn2 ? 255 : Math.round(255 * (1 - smoothstep(rIn, r, Math.sqrt(d2))));
       const i = yy * w + xx;
       if (a > erase[i]) erase[i] = a;
     }
   }
+}
+
+/**
+ * Enquanto o dedo apaga, redesenha só em volta dele (em qualidade final): antes a tatuagem
+ * inteira era refeita a cada movimento, e num celular fraco a borracha ficava para trás.
+ */
+let eraseBox: Box | null = null;
+let eraseFrame = 0;
+function eraseDirty(x0: number, y0: number, x1: number, y1: number, r: number) {
+  if (!photo) return;
+  const b: Box = [
+    Math.max(0, Math.floor(Math.min(x0, x1) - r - 1)),
+    Math.max(0, Math.floor(Math.min(y0, y1) - r - 1)),
+    Math.min(photo.w - 1, Math.ceil(Math.max(x0, x1) + r + 1)),
+    Math.min(photo.h - 1, Math.ceil(Math.max(y0, y1) + r + 1)),
+  ];
+  eraseBox = union(eraseBox, b);
+  eraseFrame ||= requestAnimationFrame(redrawErase);
+}
+
+function redrawErase() {
+  eraseFrame = 0;
+  const b = eraseBox;
+  eraseBox = null;
+  if (!photo || !out) return;
+  if (b && placed(sel)) {
+    if (!baseCache || comparing) schedule();
+    else {
+      // A base (foto + outras tatuagens) volta no retângulo e a tatuagem é desenhada de novo só ali.
+      restoreBase(b);
+      render(out, photo.highlight, sel.mask, sel.frame, sel.tex, sel.pl, sel.erase, 1, b);
+      ctx.putImageData(out, 0, 0, b[0], b[1], b[2] - b[0] + 1, b[3] - b[1] + 1);
+      selBox = union(selBox, b);
+    }
+  }
+  drawOverlay();
+  drawStageLoupe();
+}
+
+function drawStageLoupe() {
+  const css = Number(eraseSizeIn.value);
+  drawLoupe(stage, stageLoupe, eraseMode ? loupeAt : null, { zoom: zoomForBrush(css), ringCss: css });
 }
 
 function stampSegment(erase: Uint8Array, a: [number, number], b: [number, number], r: number) {
@@ -2301,6 +2380,8 @@ function cancelGesture() {
   if (stroke) {
     // Traço da borracha que virou gesto de dois dedos: descarta o pedaço apagado.
     stroke = null;
+    loupeAt = null;
+    drawLoupe(stage, stageLoupe, null);
     if (sel) rebuildErase(sel);
     schedule();
   }
@@ -2366,7 +2447,9 @@ stageBox.addEventListener('pointerdown', (e) => {
       stroke = { r: brushRadius(), pts: [[p.x, p.y]] };
       sel.erase ??= new Uint8Array(photo.w * photo.h);
       stamp(sel.erase, p.x, p.y, stroke.r);
-      schedule(true);
+      cursor = p;
+      loupeAt = e.pointerType !== 'mouse' ? p : null;
+      eraseDirty(p.x, p.y, p.x, p.y, stroke.r);
       gesture = { k: 'mode' };
     }
     return;
@@ -2459,7 +2542,8 @@ stageBox.addEventListener('pointermove', (e) => {
       stroke.pts.push([p.x, p.y]);
       stampSegment(sel.erase, last, [p.x, p.y], stroke.r);
       cursor = p;
-      schedule(true);
+      if (e.pointerType !== 'mouse') loupeAt = p;
+      eraseDirty(last[0], last[1], p.x, p.y, stroke.r);
     }
     return;
   }
@@ -2508,9 +2592,11 @@ function endPointer(e: PointerEvent) {
     return;
   }
   if (stroke) {
+    // A tela já está certa (cada pedaço foi redesenhado em qualidade final): só guarda o passo.
     if (stroke.pts.length) sel?.strokes.push(stroke);
     stroke = null;
-    schedule();
+    loupeAt = null;
+    drawLoupe(stage, stageLoupe, null);
     commit();
     return;
   }

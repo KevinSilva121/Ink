@@ -147,6 +147,8 @@ export function render(
   /** Borracha (0..255): onde há algo na frente da pele, a tatuagem não aparece. */
   erase: Uint8Array | null = null,
   step = 1,
+  /** Desenha só dentro deste retângulo (ex.: em volta do dedo da borracha). */
+  clip: Box | null = null,
 ): Box | null {
   const W = out.width;
   const H = out.height;
@@ -188,10 +190,16 @@ export function render(
       y1 = Math.max(y1, y);
     }
   }
-  const bx0 = Math.max(0, Math.floor(x0));
-  const by0 = Math.max(0, Math.floor(y0));
-  const bx1 = Math.min(W - 1, Math.ceil(x1));
-  const by1 = Math.min(H - 1, Math.ceil(y1));
+  let bx0 = Math.max(0, Math.floor(x0));
+  let by0 = Math.max(0, Math.floor(y0));
+  let bx1 = Math.min(W - 1, Math.ceil(x1));
+  let by1 = Math.min(H - 1, Math.ceil(y1));
+  if (clip) {
+    bx0 = Math.max(bx0, clip[0]);
+    by0 = Math.max(by0, clip[1]);
+    bx1 = Math.min(bx1, clip[2]);
+    by1 = Math.min(by1, clip[3]);
+  }
   if (bx0 > bx1 || by0 > by1) return null;
 
   // Nível do mipmap: o mais leve que ainda tenha pelo menos 1 texel por pixel calculado.

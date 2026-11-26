@@ -120,6 +120,7 @@
             <canvas id="stage"></canvas>
             <canvas id="overlay"></canvas>
           </div>
+          <canvas id="stageLoupe" class="stage-loupe" aria-hidden="true" hidden></canvas>
           <div class="fabs">
             <button type="button" class="fab" id="lock" aria-pressed="false" aria-label="Travar a edição" title="Travar a edição">
               <svg class="ic ic-open" aria-hidden="true"><use href="#i-lock-open" /></svg>
@@ -224,7 +225,15 @@
           </div>
           <div class="tp tp-mode" data-panel="erase" hidden>
             <p>Passe o dedo onde a tatuagem não deve aparecer.</p>
-            <button type="button" class="btn" data-done>Pronto</button>
+            <div class="slider slider-row">
+              <label for="eraseSize">Tamanho</label>
+              <input id="eraseSize" type="range" min="8" max="60" value="22" />
+              <output id="eraseSizeOut"></output>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn ghost" data-undo><svg class="ic" aria-hidden="true"><use href="#i-undo" /></svg>Desfazer</button>
+              <button type="button" class="btn" data-done><svg class="ic" aria-hidden="true"><use href="#i-check" /></svg>Pronto</button>
+            </div>
           </div>
           <div class="tp tp-sheet" data-panel="more" hidden>
             <div class="slider">

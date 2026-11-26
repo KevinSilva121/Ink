@@ -21,6 +21,7 @@ import {
 import { MagnetLasso, edgeCost } from './magnet';
 import { clamp, loadToCanvas, smoothstep } from './util';
 import { saveFile } from './platform';
+import { drawLoupe as drawLoupeOn, zoomForBrush } from './loupe';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -506,63 +507,9 @@ function canvasPoint(cv: HTMLCanvasElement, e: PointerEvent) {
 
 // ----- Lupa: no celular o dedo cobre a linha; mostra ampliado o que está embaixo dele -----
 const loupe = $<HTMLCanvasElement>('xLoupe');
-const LOUPE_CSS = 132;
-const LOUPE_ZOOM = 2.4;
 
 function drawLoupe(p: { x: number; y: number } | null) {
-  drawLoupeOf(photoCv, loupe, p);
-}
-
-/**
- * Lupa sobre `src` (ponto `p` em pixels do canvas): do lado oposto ao dedo, no alto.
- * `ringCss` > 0 desenha o tamanho da borracha (raio em px de tela) em volta da mira.
- */
-function drawLoupeOf(src: HTMLCanvasElement, lp: HTMLCanvasElement, p: { x: number; y: number } | null, zoom = LOUPE_ZOOM, ringCss = 0) {
-  if (!p) {
-    lp.hidden = true;
-    return;
-  }
-  const r = src.getBoundingClientRect();
-  if (!r.width) return;
-  const dpr = window.devicePixelRatio || 1;
-  const size = Math.round(LOUPE_CSS * dpr);
-  if (lp.width !== size) lp.width = lp.height = size;
-  const fingerX = (p.x / src.width) * r.width;
-  lp.classList.toggle('right', fingerX < r.width / 2);
-  lp.hidden = false;
-  const span = ((LOUPE_CSS / zoom) * src.width) / r.width; // pixels do canvas mostrados
-  const g = lp.getContext('2d')!;
-  const paperBg = !!ringCss;
-  g.fillStyle = paperBg ? '#fff' : '#000';
-  g.fillRect(0, 0, size, size);
-  g.imageSmoothingEnabled = true;
-  g.drawImage(src, p.x - span / 2, p.y - span / 2, span, span, 0, 0, size, size);
-  const c = size / 2;
-  if (ringCss) {
-    // O que fica dentro do círculo é apagado (borda tracejada clara e escura: aparece em tudo).
-    const rr = ringCss * zoom * dpr;
-    g.lineWidth = Math.max(1.5, 1.5 * dpr);
-    g.setLineDash([4 * dpr, 3 * dpr]);
-    g.strokeStyle = 'rgba(255,255,255,0.95)';
-    g.beginPath();
-    g.arc(c, c, rr, 0, Math.PI * 2);
-    g.stroke();
-    g.lineDashOffset = 4 * dpr;
-    g.strokeStyle = 'rgba(0,0,0,0.85)';
-    g.stroke();
-    g.setLineDash([]);
-    g.lineDashOffset = 0;
-  }
-  // Mira no ponto exato do dedo.
-  g.strokeStyle = paperBg ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)';
-  g.lineWidth = Math.max(1, dpr);
-  const a = size * 0.08;
-  g.beginPath();
-  g.moveTo(c - a, c);
-  g.lineTo(c + a, c);
-  g.moveTo(c, c - a);
-  g.lineTo(c, c + a);
-  g.stroke();
+  drawLoupeOn(photoCv, loupe, p);
 }
 
 /** Traço do dedo (sempre) e o contorno ímã em andamento (no modo ímã). */
@@ -1020,7 +967,7 @@ function setErase(on: boolean) {
   updateBrushCursor();
   if (!erasing) {
     stroke = null;
-    drawLoupeOf(outCv, eraseLoupe, null);
+    drawLoupeOn(outCv, eraseLoupe, null);
     return;
   }
   setStatus('Passe o dedo no que não é tatuagem: pelos, pintas, sombras, fundo. A lupa mostra de perto o que sai.');
@@ -1268,9 +1215,7 @@ function scheduleBlit() {
 }
 
 function drawEraseLoupe() {
-  // Ampliação que mantém o círculo da borracha dentro da lupa.
-  const zoom = clamp(56 / brushCss(), 1.2, 3);
-  drawLoupeOf(outCv, eraseLoupe, loupeAt, zoom, brushCss());
+  drawLoupeOn(outCv, eraseLoupe, loupeAt, { zoom: zoomForBrush(brushCss()), ringCss: brushCss(), bg: '#fff' });
 }
 
 /** Uma marca de borracha (no desenho de verdade e na prévia). */
@@ -1329,7 +1274,7 @@ const endStroke = () => {
   }
   stroke = null;
   loupeAt = null;
-  drawLoupeOf(outCv, eraseLoupe, null);
+  drawLoupeOn(outCv, eraseLoupe, null);
   updateUndo();
 };
 outCv.addEventListener('pointerup', endStroke);
