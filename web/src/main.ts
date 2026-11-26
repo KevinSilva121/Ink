@@ -21,6 +21,7 @@ import { openExtractor } from './extractor';
 import { acceptPaint, fitArea, gridSize, inkFraction, skinGrid, type Accepted, type SkinGrid } from './area';
 import { openDecal } from './decal';
 import { drawLoupe, zoomForBrush } from './loupe';
+import './about';
 import { clamp, loadToCanvas, resampleBilinear, smoothstep } from './util';
 import {
   askPersistence,

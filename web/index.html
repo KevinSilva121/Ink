@@ -58,7 +58,6 @@
       <div class="brand">
         <img class="logo" src="brand/logo.png" alt="" width="36" height="36" />
         <h1>Provink</h1>
-        <span class="tag">beta</span>
       </div>
       <div class="top-acts">
         <div class="hist ed-only">
@@ -72,6 +71,9 @@
         <button type="button" class="btn ghost top-btn" id="projectsBtn" aria-label="Meus projetos" title="Meus projetos">
           <svg class="ic" aria-hidden="true"><use href="#i-folder" /></svg>
           <span class="top-label">Projetos</span>
+        </button>
+        <button type="button" class="btn ghost top-btn home-only" id="aboutBtn" data-about aria-label="Sobre o Provink" title="Sobre o Provink">
+          <svg class="ic" aria-hidden="true"><use href="#i-info" /></svg>
         </button>
         <button type="button" class="btn top-btn ed-only" id="save" title="Salvar a foto com a tatuagem">
           <svg class="ic" aria-hidden="true"><use href="#i-download" /></svg>
@@ -251,6 +253,7 @@
               <label class="btn ghost" for="photoInput"><svg class="ic" aria-hidden="true"><use href="#i-image" /></svg>Trocar foto</label>
             </div>
             <p id="designNote" class="note info"></p>
+            <button type="button" class="link about-link" data-about><svg class="ic" aria-hidden="true"><use href="#i-info" /></svg>Sobre o Provink</button>
           </div>
         </div>
 
@@ -450,6 +453,39 @@
       <div class="sticky-cta">
         <button type="button" class="btn btn-lg" id="dPdf" disabled><svg class="ic" aria-hidden="true"><use href="#i-download" /></svg><span>Baixar PDF (tamanho real)</span></button>
       </div>
+    </dialog>
+
+    <dialog id="about" class="sheet" aria-labelledby="aTitle">
+      <div class="x-head">
+        <h2 id="aTitle">Sobre</h2>
+        <button type="button" class="x-close" id="aClose" aria-label="Fechar"><svg class="ic" aria-hidden="true"><use href="#i-x" /></svg></button>
+      </div>
+      <div class="about-app">
+        <img class="about-icon" src="brand/logo.png" alt="" width="88" height="88" />
+        <h3>Provink</h3>
+        <p>Prove a sua tatuagem antes de fazer.</p>
+      </div>
+      <dl class="card about-info">
+        <div><dt>Versão</dt><dd id="aVersion"></dd></div>
+        <div><dt>Atualizada em</dt><dd id="aDate"></dd></div>
+        <div><dt>Onde</dt><dd id="aWhere"></dd></div>
+        <div id="aBuildRow"><dt>Código da versão</dt><dd id="aBuild"></dd></div>
+      </dl>
+      <div class="card about-company">
+        <img src="brand/innovate.png" alt="" width="56" height="56" />
+        <div>
+          <small>Desenvolvido por</small>
+          <b>Innovate Apps Co.</b>
+        </div>
+      </div>
+      <p class="note info about-note">
+        As fotos são processadas no seu aparelho e não são enviadas para nenhum servidor. Os projetos ficam salvos só neste
+        aparelho.
+      </p>
+      <p class="note about-small">
+        Feito com MediaPipe (Google, licença Apache 2.0), Capacitor (licença MIT) e a fonte Inter (SIL Open Font License).
+      </p>
+      <p class="note about-small" id="aCopy"></p>
     </dialog>
 
     <footer>
