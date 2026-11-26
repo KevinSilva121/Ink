@@ -2037,25 +2037,27 @@ canvas {
   -webkit-tap-highlight-color: transparent;
 }
 
-.top,
-.home,
-.actions,
-.dock,
-.fabs,
-.tiles,
-.splash {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-/* Segurar o dedo na foto ou no desenho (borracha, pincel, contorno) não pode selecionar a
-   imagem (ela ficava azul, como para copiar) nem abrir o menu de copiar/salvar imagem. */
-.stage-wrap,
-.x-box,
-.x-erasebar {
+/* App inteiro: segurar o dedo em texto, foto, desenho ou botão não seleciona nada (ficava azul,
+   como para copiar), não abre o menu de copiar/salvar imagem, não arrasta a imagem e o toque
+   não pisca azul. Só os campos de texto (nome do projeto) continuam selecionáveis. */
+html {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+img,
+canvas {
+  -webkit-user-drag: none;
+}
+
+input:not([type='range']):not([type='radio']):not([type='checkbox']):not([type='file']),
+textarea,
+[contenteditable]:not([contenteditable='false']) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* ---------- Sobre ---------- */

@@ -1352,13 +1352,6 @@ const endStroke = () => {
 outCv.addEventListener('pointerup', endStroke);
 outCv.addEventListener('pointercancel', endStroke);
 
-// Segurar o dedo na foto ou no desenho não seleciona a imagem (ficava azul, como para copiar) nem
-// abre o menu de copiar/salvar imagem.
-for (const cv of [outCv, photoCv]) {
-  cv.addEventListener('contextmenu', (e) => e.preventDefault());
-  cv.addEventListener('selectstart', (e) => e.preventDefault());
-}
-
 // ---------- Usar / salvar / fechar ----------
 /** PNG do desenho final (síncrono: o toBlob às vezes demora até o navegador ficar ocioso). */
 function exportBlob(): Blob {

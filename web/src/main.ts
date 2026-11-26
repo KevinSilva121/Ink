@@ -39,6 +39,23 @@ import { blobToDataUrl, isNative, onBackButton, saveFile } from './platform';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// Segurar o dedo em qualquer lugar do app não seleciona nada nem abre o menu de copiar/salvar imagem
+// (junto com o user-select do style.css). Campos de texto continuam normais; no computador, o botão
+// direito também.
+{
+  const editable = (t: EventTarget | null) =>
+    // selectstart chega no nó de texto, não no elemento: sobe para o pai.
+    !!(t instanceof Element ? t : t instanceof Node ? t.parentElement : null)?.closest('textarea, [contenteditable]:not([contenteditable="false"]), input:not([type="range"]):not([type="radio"]):not([type="checkbox"]):not([type="file"])');
+  let touchy = false;
+  addEventListener('pointerdown', (e) => (touchy = e.pointerType !== 'mouse'), { capture: true, passive: true });
+  addEventListener('contextmenu', (e) => {
+    if (touchy && !editable(e.target)) e.preventDefault();
+  }, { capture: true });
+  addEventListener('selectstart', (e) => {
+    if (!editable(e.target)) e.preventDefault();
+  }, { capture: true });
+}
+
 // ---------- Abertura ----------
 // Fica pelo menos 1,5 s à vista e some suave quando o app terminou de carregar; um toque pula.
 // O tempo conta de quando a arte chegou (no celular, a página leva segundos para abrir e, contando
