@@ -3,3 +3,5 @@ dist/
 # gerados por scripts/setup.mjs
 public/mediapipe/
 public/models/
+# projeto do iPhone: gerado no Mac por scripts/ios.mjs (npm run ios)
+/ios/

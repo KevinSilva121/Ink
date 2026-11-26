@@ -72,13 +72,14 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
-      - run: npm run build
-      - run: npx cap sync ios
+      # A pasta ios/ não fica no repositório: é gerada como no Mac (Capacitor + CocoaPods + ajustes
+      # do Provink, em scripts/ios.mjs).
+      - run: npm run ios:ci
 
       - name: Compilar para o simulador do iPhone (sem assinatura)
         run: >
           xcodebuild
-          -project ios/App/App.xcodeproj
+          -workspace ios/App/App.xcworkspace
           -scheme App
           -configuration Debug
           -sdk iphonesimulator

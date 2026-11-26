@@ -2,6 +2,7 @@
   "name": "provink",
   "private": true,
   "version": "1.0.0",
+  "buildNumber": 1,
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
@@ -10,9 +11,12 @@
     "prebuild": "node scripts/setup.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "app:sync": "npm run build && cap sync",
+    "app:sync": "npm run build && cap sync android",
     "app:android": "npm run app:sync && cap open android",
-    "app:ios": "npm run app:sync && cap open ios"
+    "ios": "npm run build && node scripts/ios.mjs --abrir",
+    "ios:novo": "npm run build && node scripts/ios.mjs --novo --abrir",
+    "ios:ci": "npm run build && node scripts/ios.mjs",
+    "app:ios": "npm run ios"
   },
   "dependencies": {
     "@capacitor/android": "8.6.2",
@@ -21,7 +25,7 @@
     "@capacitor/filesystem": "8.1.5",
     "@capacitor/ios": "8.6.2",
     "@capacitor/share": "8.0.3",
-    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/splash-screen": "8.0.2",
     "@fontsource-variable/inter": "^5.3.0",
     "@mediapipe/tasks-vision": "1.2.2"
   },

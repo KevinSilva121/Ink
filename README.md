@@ -35,9 +35,12 @@ Na primeira vez, `npm run dev` baixa os modelos de detecção do corpo do MediaP
 O app nativo é o mesmo app web dentro de um app de verdade ([Capacitor](https://capacitorjs.com)). Identificador: `com.provink.app`.
 
 - `web/android/`: projeto Android (abre no Android Studio).
-- `web/ios/`: projeto iOS (abre no Xcode, num Mac).
+- `web/ios/`: projeto iOS. **Não fica no repositório**: é gerado no Mac com `npm run ios` (ver "iPhone" abaixo).
+- `web/native/ios/`: ícone e abertura do iPhone, copiados para o projeto gerado.
 - `web/src/platform.ts`: o que muda entre site e app (salvar/compartilhar arquivos, botão voltar do Android).
-- `web/assets/`: logo, ícone e tela de abertura (o logo atual é provisório; depois de trocar, rode `npx @capacitor/assets generate --android --ios`).
+- `web/assets/`: ícone e tela de abertura de origem. Depois de trocar, rode `npx @capacitor/assets generate --android --ios` (com a pasta `ios` gerada) e copie `AppIcon.appiconset` e `Splash.imageset` de `web/ios/App/App/Assets.xcassets` para `web/native/ios/Assets.xcassets`.
+
+**Versão:** num lugar só, `web/package.json`: `version` (ex.: 1.0.0) e `buildNumber` (aumente a cada envio para as lojas). Vale para o site (tela "Sobre"), o Android e o iPhone.
 
 **APK de teste sem instalar nada:** cada push na `main` monta o APK no GitHub (`.github/workflows/apps.yml`). Em **Actions → "Apps (Android e iOS)" → a execução mais recente → Artifacts**, baixe `provink-android-teste`, passe o `app-debug.apk` para o celular e instale (o Android pede para permitir "instalar apps desconhecidos"). O mesmo fluxo compila o projeto do iPhone num Mac, para garantir que ele está ok.
 
@@ -45,14 +48,24 @@ O app nativo é o mesmo app web dentro de um app de verdade ([Capacitor](https:/
 
 ```bash
 cd web
-npm run app:sync        # monta o app web e copia para os projetos nativos
+npm run app:sync        # monta o app web e copia para o projeto Android
 cd android
 ./gradlew assembleDebug # APK em android/app/build/outputs/apk/debug/
 ```
 
 Ou `npm run app:android` para abrir no Android Studio (em Settings → Build Tools → Gradle, use o JDK 21).
 
-**iPhone:** só compila no macOS (Xcode). Para publicar: conta Apple Developer, assinatura e envio para o TestFlight a partir de um Mac ou do GitHub Actions.
+**iPhone:** só compila no macOS. Precisa do Xcode, do Node.js 22 e do CocoaPods (`brew install cocoapods`).
+
+```bash
+cd web
+npm ci
+npm run ios        # gera web/ios se não existir, aplica ícone, abertura, permissões e versão,
+                   # instala os pods e abre o Xcode
+npm run ios:novo   # apaga web/ios e gera do zero (ex.: depois de atualizar o Capacitor)
+```
+
+No Xcode (abre o `App.xcworkspace`, não o `.xcodeproj`): **Signing & Capabilities → Team** com a sua conta Apple, escolha o iPhone e ▶. Para atualizar depois: `git pull` e `npm run ios` de novo. Para publicar: conta Apple Developer paga, **Product → Archive → Distribute App → App Store Connect** e testes pelo TestFlight.
 
 ## Publicação do site
 

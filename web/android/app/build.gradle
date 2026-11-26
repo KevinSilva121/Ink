@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+// Versão do app num lugar só: web/package.json ("version" e "buildNumber"), igual no iPhone.
+def appPackage = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+
 android {
     namespace = "com.provink.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "com.provink.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode appPackage.buildNumber as Integer
+        versionName appPackage.version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
