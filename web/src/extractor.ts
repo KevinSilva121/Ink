@@ -855,7 +855,7 @@ function renderOut() {
   drawRotated(W);
 }
 
-/** O desenho (antes de girar) → tela, girado. Com giro zero, só o retângulo que mudou. */
+/** O desenho (antes de girar) → tela, girado. Com `box`, só o retângulo que mudou. */
 function drawRotated(W: Work, box?: Box) {
   const ctx = outCv.getContext('2d')!;
   if (box && W.rot === 0) {
@@ -865,6 +865,23 @@ function drawRotated(W: Work, box?: Box) {
     return;
   }
   ctx.save();
+  if (box) {
+    // Onde o retângulo do desenho cai na tela girada (o inverso de toUnrotated).
+    const uw = unrotated.width;
+    const uh = unrotated.height;
+    const to = (x: number, y: number): [number, number] =>
+      W.rot === 1 ? [uh - 1 - y, x] : W.rot === 2 ? [uw - 1 - x, uh - 1 - y] : [y, uw - 1 - x];
+    const [ax, ay] = to(box[0], box[1]);
+    const [bx, by] = to(box[2], box[3]);
+    const x0 = Math.min(ax, bx);
+    const y0 = Math.min(ay, by);
+    const w = Math.abs(bx - ax) + 1;
+    const h = Math.abs(by - ay) + 1;
+    ctx.beginPath();
+    ctx.rect(x0, y0, w, h);
+    ctx.clip();
+    ctx.clearRect(x0, y0, w, h);
+  }
   ctx.translate(outCv.width / 2, outCv.height / 2);
   ctx.rotate((W.rot * Math.PI) / 2);
   ctx.drawImage(unrotated, -unrotated.width / 2, -unrotated.height / 2);
@@ -1032,14 +1049,7 @@ undoBtn.addEventListener('click', () => {
   if (!W?.strokes.length) return;
   const wasPreview = !!pv && W.strokes.length > pv.built && pv.undo.length > 0;
   W.strokes.pop();
-  W.erase = null;
-  if (W.strokes.length) {
-    W.erase = new Uint8Array(W.ink.w * W.ink.h);
-    for (const s of W.strokes) {
-      stamp(W, s.pts[0], s.r);
-      for (let k = 1; k < s.pts.length; k++) stampSegment(W, s.pts[k - 1], s.pts[k], s.r);
-    }
-  }
+  rebuildErase(W);
   if (wasPreview && pv) restoreTiles(pv, pv.undo.pop()!);
   else {
     // Traço que já estava no desenho montado: remonta sem ele.
@@ -1077,24 +1087,88 @@ function brushRadius(W: Work) {
   return (brushCss() * outCv.width) / shown / W.scale;
 }
 
-function stamp(W: Work, [x, y]: [number, number], r: number) {
+/**
+ * Quanto a borracha apaga (0..255) pela fração (distância/raio)² do traço: o miolo inteiro, a
+ * borda suave. Tabela feita uma vez (a conta da borda, pixel a pixel, pesava).
+ */
+const ERASE_LUT_N = 1024;
+const ERASE_LUT = (() => {
+  const t = new Uint8Array(ERASE_LUT_N + 1);
+  for (let k = 0; k <= ERASE_LUT_N; k++) t[k] = Math.round(255 * (1 - smoothstep(0.6, 1, Math.sqrt(k / ERASE_LUT_N))));
+  return t;
+})();
+const erasedAt = (d2: number, r2: number) => ERASE_LUT[Math.min(ERASE_LUT_N, Math.floor((d2 / r2) * ERASE_LUT_N))];
+
+/**
+ * Faixa de x da linha y que fica a menos de R do segmento a–b (o traço é convexo: um intervalo),
+ * dentro de [x0, x1]. Sem nada: lo > hi.
+ */
+function rowSpan(y: number, ax: number, ay: number, bx: number, by: number, R2: number, x0: number, x1: number): [number, number] {
+  let lo = x0;
+  while (lo <= x1 && segDist2(lo, y, ax, ay, bx, by) > R2) lo++;
+  let hi = x1;
+  while (hi >= lo && segDist2(hi, y, ax, ay, bx, by) > R2) hi--;
+  return [lo, hi];
+}
+
+/** Distância² do ponto (px, py) ao segmento a–b (a == b: ao ponto). */
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  let t = L2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const ex = ax + t * dx - px;
+  const ey = ay + t * dy - py;
+  return ex * ex + ey * ey;
+}
+
+/**
+ * Borracha num trecho do traço, na imagem de trabalho: tudo a menos de r do segmento a–b (a == b:
+ * só o círculo). Cada pixel é visto uma vez por trecho (antes, um carimbo redondo a cada 1/3 do
+ * raio: com borracha grossa numa imagem grande, milhões de contas por movimento do dedo).
+ */
+function eraseSegment(W: Work, a: [number, number], b: [number, number], r: number) {
   const e = (W.erase ??= new Uint8Array(W.ink.w * W.ink.h));
   const w = W.ink.w;
   const h = W.ink.h;
-  for (let yy = Math.max(0, Math.floor(y - r)); yy <= Math.min(h - 1, Math.ceil(y + r)); yy++) {
-    for (let xx = Math.max(0, Math.floor(x - r)); xx <= Math.min(w - 1, Math.ceil(x + r)); xx++) {
-      const d = Math.hypot(xx - x, yy - y);
-      if (d > r) continue;
-      const a = Math.round(255 * (1 - smoothstep(0.6 * r, r, d)));
-      const i = yy * w + xx;
-      if (a > e[i]) e[i] = a;
+  const r2 = r * r;
+  const x0 = Math.max(0, Math.floor(Math.min(a[0], b[0]) - r));
+  const x1 = Math.min(w - 1, Math.ceil(Math.max(a[0], b[0]) + r));
+  const y0 = Math.max(0, Math.floor(Math.min(a[1], b[1]) - r));
+  const y1 = Math.min(h - 1, Math.ceil(Math.max(a[1], b[1]) + r));
+  for (let yy = y0; yy <= y1; yy++) {
+    const [lo, hi] = rowSpan(yy, a[0], a[1], b[0], b[1], r2, x0, x1);
+    for (let xx = lo, i = yy * w + lo; xx <= hi; xx++, i++) {
+      if (e[i] === 255) continue;
+      const v = erasedAt(segDist2(xx, yy, a[0], a[1], b[0], b[1]), r2);
+      if (v > e[i]) e[i] = v;
     }
   }
 }
 
-function stampSegment(W: Work, a: [number, number], b: [number, number], r: number) {
-  const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (r / 3)));
-  for (let k = 1; k <= n; k++) stamp(W, [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n], r);
+/** Refaz a borracha inteira a partir dos traços (depois de desfazer). */
+function rebuildErase(W: Work) {
+  W.erase = null;
+  for (const s of W.strokes) {
+    eraseSegment(W, s.pts[0], s.pts[0], s.r);
+    for (let k = 1; k < s.pts.length; k++) eraseSegment(W, s.pts[k - 1], s.pts[k], s.r);
+  }
+}
+
+/**
+ * Quantos pixels do desenho cabem num pixel da imagem de trabalho, ali (o mapa estica o desenho
+ * ao desentortar, mais perto da borda do membro). Limita a busca da prévia em volta do dedo.
+ */
+function designPerWork(W: Work, [ux, uy]: [number, number]): number {
+  const { w: dw, h: dh, map } = W.map;
+  const i = clamp(Math.round(ux / W.scale), 0, dw - 2);
+  const j = clamp(Math.round(uy / W.scale), 0, dh - 2);
+  const k = (j * dw + i) * 2;
+  const gx = Math.hypot(map[k + 2] - map[k], map[k + 3] - map[k + 1]);
+  const gy = Math.hypot(map[k + dw * 2] - map[k], map[k + dw * 2 + 1] - map[k + 1]);
+  const g = Math.min(gx, gy);
+  return Number.isFinite(g) && g > 0 ? clamp(1 / g, 0.5, 4) : 2.5;
 }
 
 /** Guarda (uma vez por traço) os blocos de `alpha` que o traço vai mudar. */
@@ -1150,40 +1224,43 @@ const union = (a: Box | null, b: Box): Box =>
   a ? [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])] : b;
 
 /**
- * Prévia de uma marca da borracha: cada pixel do desenho perto do dedo vê onde cai na imagem de
- * trabalho (pelo mapa) e clareia na mesma medida que a borracha de verdade vai apagar ali.
+ * Prévia de um trecho da borracha: cada pixel do desenho perto do trecho vê onde cai na imagem de
+ * trabalho (pelo mapa) e clareia na mesma medida que a borracha de verdade apaga ali. A busca na
+ * tela fica só em volta do trecho, com a folga que o mapa pede naquele lugar.
  */
-function previewStamp(W: Work, P: Preview, wc: [number, number], uc: [number, number], r: number) {
+function previewSegment(W: Work, P: Preview, wa: [number, number], wb: [number, number], ua: [number, number], ub: [number, number], r: number) {
   const UW = P.shown.width;
   const UH = P.shown.height;
   const s = W.scale;
-  // Raio de busca na tela: o mapa pode esticar o desenho (desentortar) perto da borda do membro.
-  const R = 2.5 * r * s;
-  const x0 = Math.max(0, Math.floor(uc[0] - R));
-  const x1 = Math.min(UW - 1, Math.ceil(uc[0] + R));
-  const y0 = Math.max(0, Math.floor(uc[1] - R));
-  const y1 = Math.min(UH - 1, Math.ceil(uc[1] + R));
+  const R = (r * Math.max(designPerWork(W, ua), designPerWork(W, ub)) * 1.15 + 2) * s;
+  const x0 = Math.max(0, Math.floor(Math.min(ua[0], ub[0]) - R));
+  const x1 = Math.min(UW - 1, Math.ceil(Math.max(ua[0], ub[0]) + R));
+  const y0 = Math.max(0, Math.floor(Math.min(ua[1], ub[1]) - R));
+  const y1 = Math.min(UH - 1, Math.ceil(Math.max(ua[1], ub[1]) + R));
   if (x0 > x1 || y0 > y1) return;
   saveTiles(P, x0, y0, x1, y1);
   const { w: dw, h: dh, map } = W.map;
   const R2 = R * R;
-  const rIn = 0.6 * r;
+  const r2 = r * r;
   const d = P.shown.data;
   const b = P.base.data;
   const alpha = P.alpha;
+  // Coluna do mapa de cada x da tela (igual em todas as linhas).
+  const cols = new Int32Array(x1 - x0 + 1);
+  for (let x = x0; x <= x1; x++) cols[x - x0] = clamp(Math.round(x / s), 0, dw - 1);
   for (let y = y0; y <= y1; y++) {
-    const ry = y - uc[1];
     const row = clamp(Math.round(y / s), 0, dh - 1) * dw;
-    for (let x = x0; x <= x1; x++) {
-      const rx = x - uc[0];
-      if (rx * rx + ry * ry > R2) continue;
-      const k = (row + clamp(Math.round(x / s), 0, dw - 1)) * 2;
+    // Só a faixa da linha em volta do trecho na tela.
+    const [lo, hi] = rowSpan(y, ua[0], ua[1], ub[0], ub[1], R2, x0, x1);
+    for (let x = lo; x <= hi; x++) {
+      const i = y * UW + x;
+      if (alpha[i] === 255) continue; // já apagado por inteiro
+      const k = (row + cols[x - x0]) * 2;
       const mx = map[k];
       if (Number.isNaN(mx)) continue;
-      const dist = Math.hypot(mx - wc[0], map[k + 1] - wc[1]);
-      if (dist >= r) continue;
-      const a = Math.round(255 * (1 - smoothstep(rIn, r, dist)));
-      const i = y * UW + x;
+      const d2 = segDist2(mx, map[k + 1], wa[0], wa[1], wb[0], wb[1]);
+      if (d2 >= r2) continue;
+      const a = erasedAt(d2, r2);
       if (a <= alpha[i]) continue;
       alpha[i] = a;
       const f = P.curve(a / 255);
@@ -1218,10 +1295,10 @@ function drawEraseLoupe() {
   drawLoupeOn(outCv, eraseLoupe, loupeAt, { zoom: zoomForBrush(brushCss()), ringCss: brushCss(), bg: '#fff' });
 }
 
-/** Uma marca de borracha (no desenho de verdade e na prévia). */
-function eraseAt(W: Work, wc: [number, number], uc: [number, number], r: number) {
-  stamp(W, wc, r);
-  if (pv) previewStamp(W, pv, wc, uc, r);
+/** Um trecho da borracha (no desenho de verdade e na prévia). */
+function eraseStep(W: Work, wa: [number, number], wb: [number, number], ua: [number, number], ub: [number, number], r: number) {
+  eraseSegment(W, wa, wb, r);
+  if (pv) previewSegment(W, pv, wa, wb, ua, ub, r);
 }
 
 outCv.addEventListener('pointerdown', (e) => {
@@ -1237,7 +1314,7 @@ outCv.addEventListener('pointerdown', (e) => {
   if (p) {
     stroke.pts.push(p);
     stroke.lastU = u;
-    eraseAt(W, p, u, stroke.r);
+    eraseStep(W, p, p, u, u, stroke.r);
   }
   loupeAt = usesTouch ? canvasPoint(outCv, e) : null;
   scheduleBlit();
@@ -1254,14 +1331,9 @@ outCv.addEventListener('pointermove', (e) => {
     const lu = stroke.lastU;
     stroke.pts.push(p);
     stroke.lastU = u;
-    if (last && lu) {
-      // Marcas a cada 1/3 do raio, no desenho e na prévia (os dois andam juntos).
-      const n = Math.max(1, Math.ceil(Math.hypot(p[0] - last[0], p[1] - last[1]) / (stroke.r / 3)));
-      for (let k = 1; k <= n; k++) {
-        const t = k / n;
-        eraseAt(W, [last[0] + (p[0] - last[0]) * t, last[1] + (p[1] - last[1]) * t], [lu[0] + (u[0] - lu[0]) * t, lu[1] + (u[1] - lu[1]) * t], stroke.r);
-      }
-    } else eraseAt(W, p, u, stroke.r);
+    // Do ponto anterior até este, de uma vez (no desenho e na prévia).
+    if (last && lu) eraseStep(W, last, p, lu, u, stroke.r);
+    else eraseStep(W, p, p, u, u, stroke.r);
   }
   scheduleBlit();
 });
@@ -1279,6 +1351,13 @@ const endStroke = () => {
 };
 outCv.addEventListener('pointerup', endStroke);
 outCv.addEventListener('pointercancel', endStroke);
+
+// Segurar o dedo na foto ou no desenho não seleciona a imagem (ficava azul, como para copiar) nem
+// abre o menu de copiar/salvar imagem.
+for (const cv of [outCv, photoCv]) {
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('selectstart', (e) => e.preventDefault());
+}
 
 // ---------- Usar / salvar / fechar ----------
 /** PNG do desenho final (síncrono: o toBlob às vezes demora até o navegador ficar ocioso). */

@@ -2048,6 +2048,16 @@ canvas {
   user-select: none;
 }
 
+/* Segurar o dedo na foto ou no desenho (borracha, pincel, contorno) não pode selecionar a
+   imagem (ela ficava azul, como para copiar) nem abrir o menu de copiar/salvar imagem. */
+.stage-wrap,
+.x-box,
+.x-erasebar {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* ---------- Sobre ---------- */
 #aboutBtn {
   width: 46px;
