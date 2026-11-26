@@ -140,6 +140,19 @@ body {
   display: block;
 }
 
+/* A arte sem o cartão da rosa, só no pedaço do cartão (recorte 150–700 × 400–950 da arte de
+   852 × 1846; as bordas do recorte são a arte original, então não aparece emenda). Fica por cima
+   até a rosa que vem voando grudar no lugar. */
+.splash-art > .splash-hole {
+  inset: auto;
+  left: 17.6056%;
+  top: 21.6685%;
+  width: 64.554%;
+  height: 29.7941%;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 .splash-credit {
   position: absolute;
   left: 50%;
