@@ -8,6 +8,7 @@
     <link rel="icon" type="image/png" href="icon-192.png" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="preload" as="image" href="brand/splash.jpg" />
+    <link rel="preload" as="image" href="brand/icon.webp" />
     <title>Provink · Provador de tatuagem</title>
   </head>
   <body>
@@ -52,7 +53,101 @@
           <span><small>Feito por</small><b>Innovate Apps Co.</b></span>
         </div>
       </div>
+      <img class="splash-mark" src="brand/icon.webp" alt="" hidden />
     </div>
+    <!-- No app: a abertura do sistema (a rosa no preto) fica até a página ficar pronta. Por baixo
+         dela, a página já mostra a mesma rosa, no mesmo lugar e tamanho; a do sistema se dissolve
+         (não se vê troca) e a rosa da página anda e cresce até o cartão da arte, que aparece em volta.
+         Fica aqui, e não no código principal, para começar o quanto antes e para a abertura do
+         sistema nunca ficar presa na tela se o app falhar ao iniciar. -->
+    <script>
+      (function () {
+        var cap = window.Capacitor;
+        if (!cap || typeof cap.nativePromise !== 'function') return;
+        var splash = document.getElementById('splash');
+        var art = splash.querySelector('.splash-art > img');
+        var box = splash.querySelector('.splash-art');
+        var mark = splash.querySelector('.splash-mark');
+        var ios = cap.getPlatform && cap.getPlatform() === 'ios';
+        var FADE = 450;
+        // Onde o sistema desenha a rosa. iPhone: a imagem da abertura (2732 px, rosa de 640 px no
+        // meio) cobre a tela. Android 12+: o miolo do ícone com 160 px (o ícone da página tem 11% de
+        // margem em volta dele). Android mais antigo: como no iPhone.
+        // Tamanho da tela do aparelho (o app ocupa a tela toda; a página ainda pode estar sem estilo
+        // e mais larga que a tela). No iPhone a tela não troca largura e altura ao deitar.
+        var vw = screen.width;
+        var vh = screen.height;
+        if ((vw > vh) !== matchMedia('(orientation: landscape)').matches) {
+          var t = vw;
+          vw = vh;
+          vh = t;
+        }
+        var m = /Android (\d+)/.exec(navigator.userAgent);
+        var size = !ios && m && +m[1] >= 12 ? 160 / 0.865 : (640 / 2732) * Math.max(vw, vh);
+        var start = { left: (vw - size) / 2, top: (vh - size) / 2, width: size, height: size };
+        mark.hidden = false;
+        Object.assign(mark.style, { position: 'fixed', zIndex: '1', display: 'block', left: start.left + 'px', top: start.top + 'px', width: size + 'px', height: size + 'px' });
+        box.style.opacity = '0';
+        function showArt() {
+          box.style.transition = 'opacity 0.6s ease 0.15s';
+          box.style.opacity = '1';
+        }
+
+        var done = false;
+        // Quando a arte fica inteira à vista (main.ts conta o tempo da abertura a partir daí).
+        function shown() {
+          window.__splashArtAt = performance.now();
+          showArt();
+          mark.hidden = true;
+        }
+        function release(animate) {
+          if (done) return;
+          done = true;
+          try {
+            cap.nativePromise('SplashScreen', 'hide', ios ? { fadeOutDuration: FADE } : {});
+          } catch (e) {}
+          if (animate !== true || !mark.animate) return shown();
+          setTimeout(function () {
+            // O cartão da rosa na arte: 208–641 × 457–878 numa imagem de 852 × 1846 (centrado nele).
+            var r = box.getBoundingClientRect();
+            var k = r.width / 852;
+            var end = { left: r.left + 208 * k, top: r.top + 451 * k, width: 433 * k, height: 433 * k };
+            showArt();
+            var px = function (o) {
+              return { left: o.left + 'px', top: o.top + 'px', width: o.width + 'px', height: o.height + 'px' };
+            };
+            var move = mark.animate([px(start), px(end)], { duration: 750, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
+            move.onfinish = function () {
+              mark.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: 'forwards' }).onfinish = shown;
+            };
+          }, FADE);
+        }
+        function ready() {
+          var wait = [art, mark].map(function (i) {
+            return i.decode ? i.decode() : Promise.resolve();
+          });
+          Promise.all(wait).then(function () {
+            release(true);
+          }, release);
+        }
+        window.__releaseNativeSplash = release;
+        if (art.complete && mark.complete) ready();
+        else {
+          var n = 0;
+          [art, mark].forEach(function (i) {
+            if (i.complete) n++;
+            else {
+              i.addEventListener('load', function () {
+                if (++n === 2) ready();
+              });
+              i.addEventListener('error', release);
+            }
+          });
+          if (n === 2) ready();
+        }
+        setTimeout(release, 5000);
+      })();
+    </script>
 
     <header class="top">
       <div class="brand">

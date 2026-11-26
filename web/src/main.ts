@@ -43,13 +43,17 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 // Fica pelo menos 1,5 s à vista e some suave quando o app terminou de carregar; um toque pula.
 // O tempo conta de quando a arte chegou (no celular, a página leva segundos para abrir e, contando
 // do início, a abertura sumia quase sem aparecer). Enquanto isso, os modelos carregam por baixo.
+// No app, a abertura do sistema (a rosa no preto) fica na tela até a arte estar pronta e então se
+// dissolve nela (script logo depois da abertura, no index.html): sem tela preta no meio.
 {
   const splash = $('splash');
   const art = splash.querySelector('img')!;
+  const w = window as unknown as { __splashArtAt?: number; __releaseNativeSplash?: () => void };
   let gone = false;
   const hide = () => {
     if (gone) return;
     gone = true;
+    w.__releaseNativeSplash?.();
     splash.classList.add('out');
     setTimeout(() => splash.remove(), 450);
   };
@@ -68,7 +72,14 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
     if (document.readyState === 'complete') res();
     else window.addEventListener('load', () => res(), { once: true });
   });
-  void Promise.all([shown, loaded]).then(([t]) => setTimeout(hide, Math.max(0, t + 1500 - performance.now())));
+  // No app: a rosa vai até o cartão da arte (index.html); os 1,5 s contam de quando a arte fica
+  // inteira à vista.
+  const nativeOut = new Promise<number>((res) => {
+    if (!isNative || !w.__releaseNativeSplash) return res(0);
+    const check = () => (w.__splashArtAt != null ? res(w.__splashArtAt) : setTimeout(check, 50));
+    check();
+  });
+  void Promise.all([shown, nativeOut, loaded]).then(([t, n]) => setTimeout(hide, Math.max(0, Math.max(t, n) + 1500 - performance.now())));
   splash.addEventListener('pointerdown', hide);
   setTimeout(hide, 6000); // nunca fica presa
 }

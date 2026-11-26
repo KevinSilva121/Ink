@@ -103,6 +103,14 @@ body {
   pointer-events: none;
 }
 
+/* No app: a rosa que sai do lugar da abertura do sistema e vai até o cartão da arte
+   (posição e animação no script do index.html). */
+.splash-mark {
+  position: fixed;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* A arte cobre a tela do celular; em tela larga, fica inteira no meio. */
 .splash-art {
   position: relative;
